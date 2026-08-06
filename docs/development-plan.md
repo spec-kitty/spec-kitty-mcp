@@ -39,12 +39,12 @@ including malformed and unsupported requests.
 
 ## Milestone 3: Spec Kitty process boundary
 
-- [ ] Resolve the configured `spec-kitty` executable.
-- [ ] Execute argument vectors in the configured project root.
-- [ ] Add timeout and captured-output limits.
-- [ ] Parse and validate canonical Spec Kitty envelopes.
-- [ ] Negotiate the orchestrator contract at startup.
-- [ ] Build a fake CLI fixture for deterministic tests.
+- [x] Resolve the configured `spec-kitty` executable.
+- [x] Execute argument vectors in the configured project root.
+- [x] Add timeout and captured-output limits.
+- [x] Parse and validate canonical Spec Kitty envelopes.
+- [x] Negotiate the orchestrator contract at startup.
+- [x] Build a fake CLI fixture for deterministic tests.
 
 Exit condition: command construction, timeout behavior, output bounds, and all
 success/failure envelope combinations are covered without touching a real
