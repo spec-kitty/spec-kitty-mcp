@@ -9,9 +9,9 @@ Spec Kitty. It gives MCP clients typed tools while leaving workflow rules,
 state transitions, dependency checks, worktree paths, acceptance, and merge
 preflights under Spec Kitty's control.
 
-> **Status:** read-only milestone complete. The Zig server exposes contract
-> compatibility, mission state, ready-work-package queries, and capability-gated
-> workspace resolution while preserving canonical success and failure envelopes.
+> **Status:** guarded run starts available. The Zig server exposes the complete
+> read-only surface plus policy-recorded implementation and review starts while
+> preserving canonical success and failure envelopes.
 
 ## Why this exists
 
@@ -44,8 +44,8 @@ Spec Kitty project and state machine
   never interpolated into a shell command.
 - **Machine-readable all the way down.** Successful and failed Spec Kitty JSON
   envelopes are preserved as structured MCP tool results.
-- **Read-only first.** Mutation tools arrive only after protocol, subprocess,
-  validation, timeout, and error-mapping tests are in place.
+- **Guarded mutations.** State-changing tools accept structured policy metadata
+  and delegate every transition and guard decision to Spec Kitty.
 - **One project per server process.** A configured project root prevents an
   agent from silently reaching into an unrelated checkout.
 
@@ -117,8 +117,10 @@ src/
 ```
 
 The current catalog exposes `spec_kitty_contract_version`,
-`spec_kitty_mission_state`, `spec_kitty_list_ready`, and—when the negotiated
-contract is at least 1.2.0—`spec_kitty_resolve_workspace`.
+`spec_kitty_mission_state`, `spec_kitty_list_ready`,
+`spec_kitty_start_implementation`, and `spec_kitty_start_review`. When the
+negotiated contract is at least 1.2.0, it also exposes
+`spec_kitty_resolve_workspace`.
 
 ## Building and running
 

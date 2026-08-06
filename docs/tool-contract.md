@@ -166,6 +166,20 @@ The adapter validates this object, serializes it once, and passes the resulting
 JSON as the `--policy` argv value. It never logs policy contents. Spec Kitty's
 own validation remains authoritative.
 
+## Mutation annotations and confirmation
+
+`spec_kitty_start_implementation` and `spec_kitty_start_review` publish
+`readOnlyHint: false`, `destructiveHint: false`, and `openWorldHint: false`.
+Implementation start also publishes `idempotentHint: true` because Spec Kitty
+returns `no_op: true` when the same actor repeats an already-started claim.
+Review start publishes `idempotentHint: false` because the contract does not
+promise the same replay behavior.
+
+These MCP annotations are presentation hints, not authorization. Hosts should
+apply their configured confirmation policy to both tools, and Spec Kitty
+remains responsible for policy validation, actor ownership, dependencies, and
+lane-transition guards. The adapter never retries either mutation.
+
 ## Error rules
 
 | Condition | MCP representation |

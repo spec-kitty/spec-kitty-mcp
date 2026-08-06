@@ -406,6 +406,14 @@ fn makeFakeToolExecutable(
 ) ![]u8 {
     const script =
         \\#!/bin/sh
+        \\if [ "$2" = "start-implementation" ]; then
+        \\  if [ "$8" = "other-actor" ]; then
+        \\    printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.start-implementation","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-claimed","success":false,"error_code":"WP_ALREADY_CLAIMED","data":{"claiming_actor":"first-actor"}}'
+        \\    exit 1
+        \\  fi
+        \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.start-implementation","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-no-op","success":true,"error_code":null,"data":{"from_lane":"in_progress","to_lane":"in_progress","policy_metadata_recorded":true,"no_op":true}}'
+        \\  exit 0
+        \\fi
         \\if [ "$4" = "missing" ]; then
         \\  printf '{"contract_version":"1.3.0","command":"orchestrator-api.%s","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-missing","success":false,"error_code":"MISSION_NOT_FOUND","data":{}}\n' "$2"
         \\  exit 1
@@ -510,6 +518,9 @@ test "requests are gated until the initialized notification" {
     try std.testing.expect(std.mem.startsWith(u8, ready, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"tools\":["));
     try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_mission_state\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_list_ready\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_start_implementation\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_start_review\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"readOnlyHint\":false") != null);
 }
 
 test "ping is available throughout the lifecycle" {
@@ -623,6 +634,58 @@ test "tool calls reject unknown tools and invalid arguments" {
     defer std.testing.allocator.free(invalid);
     try std.testing.expectEqualStrings(
         "{\"jsonrpc\":\"2.0\",\"id\":13,\"error\":{\"code\":-32602,\"message\":\"Invalid tool arguments\"}}\n",
+        invalid,
+    );
+}
+
+test "mutation tool calls preserve idempotent and guard outcomes" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeToolExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    var server = Server.initWithTools(
+        "test",
+        client,
+        std.testing.io,
+        "0.1.0",
+        "1.3.0",
+    );
+    server.state = .ready;
+
+    const no_op_request =
+        \\{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"spec_kitty_start_implementation","arguments":{"mission":"042-test","wp":"WP01","actor":"same-actor","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[]}}}}
+    ;
+    const no_op = try exchange(&server, no_op_request);
+    defer std.testing.allocator.free(no_op);
+    try std.testing.expect(std.mem.indexOf(u8, no_op, "\"correlation_id\":\"corr-no-op\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, no_op, "\"no_op\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, no_op, "\"isError\":false") != null);
+
+    const claimed_request =
+        \\{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"spec_kitty_start_implementation","arguments":{"mission":"042-test","wp":"WP01","actor":"other-actor","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[]}}}}
+    ;
+    const claimed = try exchange(&server, claimed_request);
+    defer std.testing.allocator.free(claimed);
+    try std.testing.expect(std.mem.indexOf(u8, claimed, "\"correlation_id\":\"corr-claimed\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, claimed, "\"error_code\":\"WP_ALREADY_CLAIMED\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, claimed, "\"isError\":true") != null);
+
+    const invalid = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":19,\"method\":\"tools/call\",\"params\":{\"name\":\"spec_kitty_start_implementation\",\"arguments\":{\"mission\":\"042-test\",\"wp\":\"WP01\",\"actor\":\"codex\",\"policy\":\"raw-json\"}}}",
+    );
+    defer std.testing.allocator.free(invalid);
+    try std.testing.expectEqualStrings(
+        "{\"jsonrpc\":\"2.0\",\"id\":19,\"error\":{\"code\":-32602,\"message\":\"Invalid tool arguments\"}}\n",
         invalid,
     );
 }

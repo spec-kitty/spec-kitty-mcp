@@ -16,6 +16,17 @@ const StringSchema = struct {
     minLength: u8 = 1,
 };
 
+const StringItemsSchema = struct {
+    type: []const u8 = "string",
+    minLength: u8 = 1,
+};
+
+const StringArraySchema = struct {
+    type: []const u8 = "array",
+    description: []const u8,
+    items: StringItemsSchema = .{},
+};
+
 const ObjectSchema = struct {
     type: []const u8 = "object",
 };
@@ -105,16 +116,112 @@ const ContractInputSchema = struct {
     additionalProperties: bool = false,
 };
 
+const PolicyNullableStringSchema = struct {
+    type: []const []const u8 = &.{ "string", "null" },
+    description: []const u8,
+};
+
+const PolicyProperties = struct {
+    orchestrator_id: StringSchema = .{
+        .description = "Stable identity of the external orchestrator.",
+    },
+    orchestrator_version: StringSchema = .{
+        .description = "Version of the external orchestrator.",
+    },
+    agent_family: StringSchema = .{
+        .description = "Agent family that will perform the run, for example codex.",
+    },
+    approval_mode: StringSchema = .{
+        .description = "Approval mode governing the run.",
+    },
+    sandbox_mode: StringSchema = .{
+        .description = "Sandbox mode governing the run.",
+    },
+    network_mode: StringSchema = .{
+        .description = "Network access mode governing the run.",
+    },
+    dangerous_flags: StringArraySchema = .{
+        .description = "Dangerous execution flags enabled for the run; may be empty.",
+    },
+    tool_restrictions: PolicyNullableStringSchema = .{
+        .description = "Optional description of tool restrictions for the run.",
+    },
+};
+
+const PolicySchema = struct {
+    type: []const u8 = "object",
+    properties: PolicyProperties = .{},
+    required: []const []const u8 = &.{
+        "orchestrator_id",
+        "orchestrator_version",
+        "agent_family",
+        "approval_mode",
+        "sandbox_mode",
+        "network_mode",
+        "dangerous_flags",
+    },
+    additionalProperties: bool = false,
+};
+
+const StartImplementationProperties = struct {
+    mission: StringSchema = .{
+        .description = "Spec Kitty mission slug, for example 042-test-mission.",
+    },
+    wp: StringSchema = .{
+        .description = "Work-package identifier, for example WP01.",
+    },
+    actor: StringSchema = .{
+        .description = "Auditable identity claiming the work package.",
+    },
+    policy: PolicySchema = .{},
+};
+
+const StartImplementationInputSchema = struct {
+    @"$schema": []const u8 = schema_dialect,
+    type: []const u8 = "object",
+    properties: StartImplementationProperties = .{},
+    required: []const []const u8 = &.{ "mission", "wp", "actor", "policy" },
+    additionalProperties: bool = false,
+};
+
+const StartReviewProperties = struct {
+    mission: StringSchema = .{
+        .description = "Spec Kitty mission slug, for example 042-test-mission.",
+    },
+    wp: StringSchema = .{
+        .description = "Work-package identifier, for example WP01.",
+    },
+    actor: StringSchema = .{
+        .description = "Auditable identity claiming the review.",
+    },
+    policy: PolicySchema = .{},
+    review_ref: StringSchema = .{
+        .description = "Optional reference to an external review artifact.",
+    },
+};
+
+const StartReviewInputSchema = struct {
+    @"$schema": []const u8 = schema_dialect,
+    type: []const u8 = "object",
+    properties: StartReviewProperties = .{},
+    required: []const []const u8 = &.{ "mission", "wp", "actor", "policy" },
+    additionalProperties: bool = false,
+};
+
 const InputSchema = union(enum) {
     contract: ContractInputSchema,
     mission: MissionInputSchema,
     workspace: WorkspaceInputSchema,
+    start_implementation: StartImplementationInputSchema,
+    start_review: StartReviewInputSchema,
 
     pub fn jsonStringify(schema: InputSchema, stringify: anytype) !void {
         switch (schema) {
             .contract => |value| try stringify.write(value),
             .mission => |value| try stringify.write(value),
             .workspace => |value| try stringify.write(value),
+            .start_implementation => |value| try stringify.write(value),
+            .start_review => |value| try stringify.write(value),
         }
     }
 };
@@ -157,6 +264,27 @@ pub const catalog = [_]Definition{
         .description = "List planned work packages whose dependencies satisfy Spec Kitty's readiness rules.",
         .inputSchema = .{ .mission = .{} },
         .annotations = .{ .title = "List ready Spec Kitty work packages" },
+    },
+    .{
+        .name = "spec_kitty_start_implementation",
+        .title = "Spec Kitty Start Implementation",
+        .description = "Atomically claim and start a ready work package through Spec Kitty, recording the supplied policy metadata.",
+        .inputSchema = .{ .start_implementation = .{} },
+        .annotations = .{
+            .title = "Start Spec Kitty work-package implementation",
+            .readOnlyHint = false,
+        },
+    },
+    .{
+        .name = "spec_kitty_start_review",
+        .title = "Spec Kitty Start Review",
+        .description = "Claim a work package review through Spec Kitty, recording the supplied policy metadata.",
+        .inputSchema = .{ .start_review = .{} },
+        .annotations = .{
+            .title = "Start a Spec Kitty work-package review",
+            .readOnlyHint = false,
+            .idempotentHint = false,
+        },
     },
     .{
         .name = "spec_kitty_resolve_workspace",
@@ -218,6 +346,67 @@ pub fn invoke(
         );
     }
 
+    if (std.mem.eql(u8, name, "spec_kitty_start_implementation")) {
+        const run = try parseStartImplementation(arguments);
+        const policy = try serializePolicy(allocator, run.policy);
+        defer allocator.free(policy);
+        return client.invoke(
+            allocator,
+            io,
+            "start-implementation",
+            &.{
+                "--mission",
+                run.mission,
+                "--wp",
+                run.wp,
+                "--actor",
+                run.actor,
+                "--policy",
+                policy,
+            },
+        );
+    }
+
+    if (std.mem.eql(u8, name, "spec_kitty_start_review")) {
+        const run = try parseStartReview(arguments);
+        const policy = try serializePolicy(allocator, run.policy);
+        defer allocator.free(policy);
+        if (run.review_ref) |review_ref| {
+            return client.invoke(
+                allocator,
+                io,
+                "start-review",
+                &.{
+                    "--mission",
+                    run.mission,
+                    "--wp",
+                    run.wp,
+                    "--actor",
+                    run.actor,
+                    "--review-ref",
+                    review_ref,
+                    "--policy",
+                    policy,
+                },
+            );
+        }
+        return client.invoke(
+            allocator,
+            io,
+            "start-review",
+            &.{
+                "--mission",
+                run.mission,
+                "--wp",
+                run.wp,
+                "--actor",
+                run.actor,
+                "--policy",
+                policy,
+            },
+        );
+    }
+
     const subcommand = if (std.mem.eql(u8, name, "spec_kitty_mission_state"))
         "mission-state"
     else if (std.mem.eql(u8, name, "spec_kitty_list_ready"))
@@ -239,6 +428,112 @@ const WorkspaceArguments = struct {
     wp: []const u8,
 };
 
+const StartImplementationArguments = struct {
+    mission: []const u8,
+    wp: []const u8,
+    actor: []const u8,
+    policy: std.json.Value,
+};
+
+const StartReviewArguments = struct {
+    mission: []const u8,
+    wp: []const u8,
+    actor: []const u8,
+    policy: std.json.Value,
+    review_ref: ?[]const u8,
+};
+
+fn parseStartImplementation(arguments: ?std.json.Value) !StartImplementationArguments {
+    const object = try argumentsObject(arguments, 4, 4);
+    return .{
+        .mission = try requiredString(object, "mission"),
+        .wp = try requiredString(object, "wp"),
+        .actor = try requiredString(object, "actor"),
+        .policy = try requiredPolicy(object),
+    };
+}
+
+fn parseStartReview(arguments: ?std.json.Value) !StartReviewArguments {
+    const object = try argumentsObject(arguments, 4, 5);
+    if (object.count() == 5 and object.get("review_ref") == null) {
+        return error.InvalidArguments;
+    }
+    return .{
+        .mission = try requiredString(object, "mission"),
+        .wp = try requiredString(object, "wp"),
+        .actor = try requiredString(object, "actor"),
+        .policy = try requiredPolicy(object),
+        .review_ref = try optionalString(object, "review_ref"),
+    };
+}
+
+fn argumentsObject(
+    arguments: ?std.json.Value,
+    min_count: usize,
+    max_count: usize,
+) !std.json.ObjectMap {
+    const value = arguments orelse return error.InvalidArguments;
+    const object = switch (value) {
+        .object => |items| items,
+        else => return error.InvalidArguments,
+    };
+    if (object.count() < min_count or object.count() > max_count) {
+        return error.InvalidArguments;
+    }
+    return object;
+}
+
+fn requiredPolicy(object: std.json.ObjectMap) !std.json.Value {
+    const value = object.get("policy") orelse return error.InvalidArguments;
+    if (value != .object) return error.InvalidArguments;
+    const policy = value.object;
+    if (policy.count() < 7 or policy.count() > 8) return error.InvalidArguments;
+    if (policy.count() == 8 and policy.get("tool_restrictions") == null) {
+        return error.InvalidArguments;
+    }
+
+    inline for (.{
+        "orchestrator_id",
+        "orchestrator_version",
+        "agent_family",
+        "approval_mode",
+        "sandbox_mode",
+        "network_mode",
+    }) |key| {
+        _ = try requiredString(policy, key);
+    }
+
+    const dangerous_flags = policy.get("dangerous_flags") orelse
+        return error.InvalidArguments;
+    if (dangerous_flags != .array) return error.InvalidArguments;
+    for (dangerous_flags.array.items) |flag| {
+        try validateStringValue(flag);
+    }
+
+    if (policy.get("tool_restrictions")) |restrictions| {
+        switch (restrictions) {
+            .null => {},
+            .string => |text| {
+                if (std.mem.indexOfScalar(u8, text, 0) != null) {
+                    return error.InvalidArguments;
+                }
+            },
+            else => return error.InvalidArguments,
+        }
+    }
+    return value;
+}
+
+fn serializePolicy(
+    allocator: std.mem.Allocator,
+    policy: std.json.Value,
+) ![]u8 {
+    var output: Io.Writer.Allocating = .init(allocator);
+    errdefer output.deinit();
+    try std.json.Stringify.value(policy, .{}, &output.writer);
+    return output.toOwnedSlice();
+}
+
 fn parseWorkspace(arguments: ?std.json.Value) !WorkspaceArguments {
     const value = arguments orelse return error.InvalidArguments;
     const object = switch (value) {
@@ -255,13 +550,23 @@ fn parseWorkspace(arguments: ?std.json.Value) !WorkspaceArguments {
 
 fn requiredString(object: std.json.ObjectMap, key: []const u8) ![]const u8 {
     const value = object.get(key) orelse return error.InvalidArguments;
+    try validateStringValue(value);
+    return value.string;
+}
+
+fn optionalString(object: std.json.ObjectMap, key: []const u8) !?[]const u8 {
+    const value = object.get(key) orelse return null;
+    try validateStringValue(value);
+    return value.string;
+}
+
+fn validateStringValue(value: std.json.Value) !void {
     if (value != .string or value.string.len == 0) {
         return error.InvalidArguments;
     }
     if (std.mem.indexOfScalar(u8, value.string, 0) != null) {
         return error.InvalidArguments;
     }
-    return value.string;
 }
 
 fn parseProviderVersion(
@@ -304,18 +609,51 @@ fn makeFakeExecutable(
 ) ![]u8 {
     const script =
         \\#!/bin/sh
-        \\printf 'arg=%s\n' "$1" >&2
-        \\printf 'arg=%s\n' "$2" >&2
-        \\printf 'arg=%s\n' "$3" >&2
-        \\printf 'arg=%s\n' "$4" >&2
-        \\printf 'arg=%s\n' "$5" >&2
-        \\printf 'arg=%s\n' "$6" >&2
+        \\position=1
+        \\for arg in "$@"; do
+        \\  if [ "$position" -le 9 ]; then
+        \\    printf 'arg=%s\n' "$arg" >&2
+        \\  fi
+        \\  position=$((position + 1))
+        \\done
         \\if [ "$2" = "contract-version" ]; then
         \\  if [ "$4" = "0.0.0" ]; then
         \\    printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.contract-version","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-mismatch","success":false,"error_code":"CONTRACT_VERSION_MISMATCH","data":{}}'
         \\    exit 1
         \\  fi
         \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.contract-version","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-contract","success":true,"error_code":null,"data":{"api_version":"1.3.0","min_supported_provider_version":"0.1.0"}}'
+        \\  exit 0
+        \\fi
+        \\if [ "$2" = "start-implementation" ]; then
+        \\  expected_policy='{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":["allow-git"]}'
+        \\  if [ "${10}" != "$expected_policy" ]; then
+        \\    printf '%s\n' 'policy-mismatch' >&2
+        \\    exit 2
+        \\  fi
+        \\  printf '%s\n' 'policy=validated' >&2
+        \\  if [ "$8" = "other-actor" ]; then
+        \\    printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.start-implementation","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-claimed","success":false,"error_code":"WP_ALREADY_CLAIMED","data":{"claiming_actor":"first-actor"}}'
+        \\    exit 1
+        \\  fi
+        \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.start-implementation","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-implementation","success":true,"error_code":null,"data":{"from_lane":"in_progress","to_lane":"in_progress","workspace_path":"/tmp/lane","prompt_path":"/tmp/WP01.md","policy_metadata_recorded":true,"no_op":true}}'
+        \\  exit 0
+        \\fi
+        \\if [ "$2" = "start-review" ]; then
+        \\  if [ "$9" = "--review-ref" ]; then
+        \\    printf 'review-ref=%s\n' "${10}" >&2
+        \\    policy_flag="${11}"
+        \\    policy_value="${12}"
+        \\  else
+        \\    policy_flag="$9"
+        \\    policy_value="${10}"
+        \\  fi
+        \\  expected_policy='{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[],"tool_restrictions":null}'
+        \\  if [ "$policy_flag" != "--policy" ] || [ "$policy_value" != "$expected_policy" ]; then
+        \\    printf '%s\n' 'policy-mismatch' >&2
+        \\    exit 2
+        \\  fi
+        \\  printf '%s\n' 'policy=validated' >&2
+        \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.start-review","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-review","success":true,"error_code":null,"data":{"from_lane":"for_review","to_lane":"in_review","prompt_path":"/tmp/WP01.md","policy_metadata_recorded":true}}'
         \\  exit 0
         \\fi
         \\printf '{"contract_version":"1.3.0","command":"orchestrator-api.%s","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-query","success":true,"error_code":null,"data":{"mission_slug":"%s"}}\n' "$2" "$4"
@@ -334,21 +672,30 @@ fn makeFakeExecutable(
     });
 }
 
-test "catalog publishes typed read-only tools" {
+test "catalog publishes typed read-only and guarded mutation tools" {
     var output: Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
 
     try std.json.Stringify.value(catalog, .{}, &output.writer);
     const json = output.written();
 
-    try std.testing.expectEqual(@as(usize, 4), catalog.len);
+    try std.testing.expectEqual(@as(usize, 6), catalog.len);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_contract_version\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_mission_state\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_list_ready\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_resolve_workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_start_implementation\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_start_review\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"orchestrator_id\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"dangerous_flags\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"additionalProperties\":false") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"readOnlyHint\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"readOnlyHint\":false") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"destructiveHint\":false") != null);
+    try std.testing.expect(!catalog[3].annotations.readOnlyHint);
+    try std.testing.expect(catalog[3].annotations.idempotentHint);
+    try std.testing.expect(!catalog[4].annotations.readOnlyHint);
+    try std.testing.expect(!catalog[4].annotations.idempotentHint);
 }
 
 test "query tools map to fixed commands and exact mission arguments" {
@@ -518,11 +865,11 @@ test "query tools reject unknown names and malformed arguments" {
 test "resolve-workspace is capability gated and uses exact arguments" {
     if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
 
-    try std.testing.expectEqual(@as(usize, 3), catalogForVersion(null).len);
-    try std.testing.expectEqual(@as(usize, 3), catalogForVersion("1.1.9").len);
-    try std.testing.expectEqual(@as(usize, 3), catalogForVersion("1.2.0-rc.1").len);
-    try std.testing.expectEqual(@as(usize, 4), catalogForVersion("1.2.0").len);
-    try std.testing.expectEqual(@as(usize, 4), catalogForVersion("2.0.0").len);
+    try std.testing.expectEqual(@as(usize, 5), catalogForVersion(null).len);
+    try std.testing.expectEqual(@as(usize, 5), catalogForVersion("1.1.9").len);
+    try std.testing.expectEqual(@as(usize, 5), catalogForVersion("1.2.0-rc.1").len);
+    try std.testing.expectEqual(@as(usize, 6), catalogForVersion("1.2.0").len);
+    try std.testing.expectEqual(@as(usize, 6), catalogForVersion("2.0.0").len);
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -571,4 +918,200 @@ test "resolve-workspace is capability gated and uses exact arguments" {
     try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=042 mission;$(no-shell)\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=--wp\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=WP01\n") != null);
+}
+
+test "start-implementation validates structured policy and uses exact argv" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    const request =
+        \\{"mission":"042 mission;$(no-shell)","wp":"WP01","actor":"same-actor","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":["allow-git"]}}
+    ;
+    var parsed = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        request,
+        .{},
+    );
+    defer parsed.deinit();
+
+    var invocation = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_start_implementation",
+        parsed.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer invocation.deinit(std.testing.allocator);
+
+    try std.testing.expect(invocation.envelope().success);
+    try std.testing.expectEqualStrings(
+        "orchestrator-api.start-implementation",
+        invocation.envelope().command,
+    );
+    try std.testing.expectEqual(true, invocation.envelope().data.object.get("no_op").?.bool);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=start-implementation\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=042 mission;$(no-shell)\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=--actor\narg=same-actor\narg=--policy\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "policy=validated\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "zig-mcp") == null);
+}
+
+test "start-run tools preserve failure envelopes and optional review references" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    const implementation_request =
+        \\{"mission":"042-test","wp":"WP01","actor":"other-actor","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":["allow-git"]}}
+    ;
+    var implementation = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        implementation_request,
+        .{},
+    );
+    defer implementation.deinit();
+    var claimed = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_start_implementation",
+        implementation.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer claimed.deinit(std.testing.allocator);
+    try std.testing.expect(!claimed.envelope().success);
+    try std.testing.expectEqualStrings("WP_ALREADY_CLAIMED", claimed.envelope().error_code.?);
+    try std.testing.expectEqualStrings("corr-claimed", claimed.envelope().correlation_id);
+
+    const review_request =
+        \\{"mission":"042-test","wp":"WP01","actor":"reviewer;$(no-shell)","review_ref":"PR #42;$(no-shell)","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[],"tool_restrictions":null}}
+    ;
+    var review = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        review_request,
+        .{},
+    );
+    defer review.deinit();
+    var started = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_start_review",
+        review.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer started.deinit(std.testing.allocator);
+    try std.testing.expect(started.envelope().success);
+    try std.testing.expect(std.mem.indexOf(u8, started.stderr, "arg=reviewer;$(no-shell)\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, started.stderr, "arg=--review-ref\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, started.stderr, "review-ref=PR #42;$(no-shell)\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, started.stderr, "policy=validated\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, started.stderr, "zig-mcp") == null);
+
+    const review_without_ref_request =
+        \\{"mission":"042-test","wp":"WP01","actor":"reviewer","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[],"tool_restrictions":null}}
+    ;
+    var review_without_ref = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        review_without_ref_request,
+        .{},
+    );
+    defer review_without_ref.deinit();
+    var started_without_ref = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_start_review",
+        review_without_ref.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer started_without_ref.deinit(std.testing.allocator);
+    try std.testing.expect(started_without_ref.envelope().success);
+    try std.testing.expect(std.mem.indexOf(u8, started_without_ref.stderr, "arg=--review-ref\n") == null);
+    try std.testing.expect(std.mem.indexOf(u8, started_without_ref.stderr, "arg=--policy\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, started_without_ref.stderr, "policy=validated\n") != null);
+}
+
+test "start-run tools reject raw malformed and extended policy input" {
+    const client: spec_kitty.Client = .{
+        .executable = "unused",
+        .project_root = ".",
+    };
+    const invalid_requests = [_][]const u8{
+        \\{"mission":"042-test","wp":"WP01","actor":"codex","policy":"{\"orchestrator_id\":\"raw-json\"}"}
+        ,
+        \\{"mission":"042-test","wp":"WP01","actor":"codex","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted"}}
+        ,
+        \\{"mission":"042-test","wp":"WP01","actor":"codex","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[1]}}
+        ,
+        \\{"mission":"042-test","wp":"WP01","actor":"codex","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[],"extra":true}}
+        ,
+        \\{"mission":"042-test","wp":"WP01","actor":"codex","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[]},"extra":true}
+        ,
+    };
+
+    for (invalid_requests) |request| {
+        var parsed = try std.json.parseFromSlice(
+            std.json.Value,
+            std.testing.allocator,
+            request,
+            .{},
+        );
+        defer parsed.deinit();
+        try std.testing.expectError(error.InvalidArguments, invoke(
+            client,
+            std.testing.allocator,
+            std.testing.io,
+            "spec_kitty_start_implementation",
+            parsed.value,
+            "0.1.0",
+            "1.3.0",
+        ));
+    }
+
+    var invalid_review = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        \\{"mission":"042-test","wp":"WP01","actor":"reviewer","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[]},"unexpected":true}
+    ,
+        .{},
+    );
+    defer invalid_review.deinit();
+    try std.testing.expectError(error.InvalidArguments, invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_start_review",
+        invalid_review.value,
+        "0.1.0",
+        "1.3.0",
+    ));
 }
