@@ -9,9 +9,9 @@ Spec Kitty. It gives MCP clients typed tools while leaving workflow rules,
 state transitions, dependency checks, worktree paths, acceptance, and merge
 preflights under Spec Kitty's control.
 
-> **Status:** MCP core implemented. The Zig server negotiates the MCP lifecycle,
-> handles newline-framed JSON-RPC over stdio, responds to ping, and publishes an
-> empty tool catalog. Spec Kitty command execution is the next milestone.
+> **Status:** process boundary implemented. The Zig server negotiates both MCP
+> and the Spec Kitty orchestrator contract, executes bounded argv-safe child
+> processes, and validates canonical envelopes. Read-only tools are next.
 
 ## Why this exists
 
@@ -110,11 +110,11 @@ src/
 ├── root.zig              Reusable package surface
 ├── cli.zig               Startup option parsing
 ├── mcp.zig               JSON-RPC framing and MCP lifecycle
-└── project.zig           Project-root validation and canonicalization
+├── project.zig           Project-root validation and canonicalization
+└── spec_kitty.zig        Bounded CLI execution and envelope parsing
 ```
 
-Tool-dispatch and Spec Kitty subprocess modules arrive in their corresponding
-development milestones.
+Tool dispatch arrives in the next development milestone.
 
 ## Building and running
 
@@ -147,11 +147,14 @@ zig build run -- \
   --spec-kitty-bin /path/to/spec-kitty
 ```
 
-After validating configuration, the executable enters its MCP stdio loop. It
-currently implements `initialize`, `notifications/initialized`, `ping`, and an
-empty `tools/list`; EOF shuts the server down. Diagnostics remain on stderr and
-stdout contains only newline-delimited JSON-RPC messages. Client configuration
-examples will be added when the first useful tools land.
+After validating configuration, the executable calls
+`spec-kitty orchestrator-api contract-version` with the adapter's provider
+version. It enters the MCP stdio loop only after a successful, structurally
+valid compatibility response. The loop currently implements `initialize`,
+`notifications/initialized`, `ping`, and an empty `tools/list`; EOF shuts the
+server down. Diagnostics remain on stderr and stdout contains only
+newline-delimited JSON-RPC messages. Client configuration examples will be
+added when the first useful tools land.
 
 ## Non-goals
 
