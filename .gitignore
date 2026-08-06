@@ -1,0 +1,19 @@
+# Zig build output
+.zig-cache/
+zig-out/
+
+# Local tooling
+.idea/
+.vscode/
+*.swp
+*.tmp
+
+# Local environment and MCP client configuration
+.env
+.env.*
+!.env.example
+*.local.json
+
+# OS metadata
+.DS_Store
+Thumbs.db
