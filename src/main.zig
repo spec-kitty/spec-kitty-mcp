@@ -37,6 +37,7 @@ fn run(init: std.process.Init) !u8 {
 
             std.log.info("bound to Spec Kitty project: {s}", .{project.root});
             std.log.info("Spec Kitty executable: {s}", .{options.spec_kitty_bin});
+            try app.mcp.serve(init.io, init.gpa, app.version);
         },
     }
 

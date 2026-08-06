@@ -27,12 +27,12 @@ Exit condition: `zig build` and `zig build test` pass from a clean checkout.
 
 ## Milestone 2: MCP core
 
-- [ ] Implement newline-delimited UTF-8 JSON-RPC framing.
-- [ ] Implement request, response, error, and notification types.
-- [ ] Implement `initialize`, `notifications/initialized`, and `ping`.
-- [ ] Enforce lifecycle ordering and protocol-version negotiation.
-- [ ] Implement `tools/list` from a compile-time catalog.
-- [ ] Reject stdout logging in tests.
+- [x] Implement newline-delimited UTF-8 JSON-RPC framing.
+- [x] Implement request, response, error, and notification types.
+- [x] Implement `initialize`, `notifications/initialized`, and `ping`.
+- [x] Enforce lifecycle ordering and protocol-version negotiation.
+- [x] Implement `tools/list` from a compile-time catalog.
+- [x] Reject stdout logging in tests.
 
 Exit condition: transcript fixtures from initialization through shutdown pass,
 including malformed and unsupported requests.
