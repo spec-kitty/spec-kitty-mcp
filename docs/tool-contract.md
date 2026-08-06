@@ -168,17 +168,17 @@ own validation remains authoritative.
 
 ## Mutation annotations and confirmation
 
-`spec_kitty_start_implementation` and `spec_kitty_start_review` publish
-`readOnlyHint: false`, `destructiveHint: false`, and `openWorldHint: false`.
-Implementation start also publishes `idempotentHint: true` because Spec Kitty
-returns `no_op: true` when the same actor repeats an already-started claim.
-Review start publishes `idempotentHint: false` because the contract does not
-promise the same replay behavior.
+All five non-merge mutation tools publish `readOnlyHint: false`,
+`destructiveHint: false`, and `openWorldHint: false`. Implementation start also
+publishes `idempotentHint: true` because Spec Kitty returns `no_op: true` when
+the same actor repeats an already-started claim. Review start, transition,
+history append, and mission acceptance publish `idempotentHint: false` because
+their contracts do not promise replay safety.
 
 These MCP annotations are presentation hints, not authorization. Hosts should
-apply their configured confirmation policy to both tools, and Spec Kitty
+apply their configured confirmation policy to these tools, and Spec Kitty
 remains responsible for policy validation, actor ownership, dependencies, and
-lane-transition guards. The adapter never retries either mutation.
+lane-transition guards. The adapter never retries these mutations.
 
 ## Error rules
 

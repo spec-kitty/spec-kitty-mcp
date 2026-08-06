@@ -55,10 +55,9 @@ default_tools_approval_mode = "writes"
 ```
 
 The `writes` approval mode allows tools marked read-only to run without the
-confirmation policy used for `spec_kitty_start_implementation` and
-`spec_kitty_start_review`. MCP annotations remain hints rather than
-authorization; Spec Kitty still enforces its own contract, policy, actor
-ownership, and workflow guards.
+confirmation policy used for the five state-changing tools. MCP annotations
+remain hints rather than authorization; Spec Kitty still enforces its own
+contract, policy, actor ownership, and workflow guards.
 
 ## Verify the tool surface
 
@@ -70,17 +69,22 @@ Ask Codex to list the configured server's tools. With orchestrator contract
 - `spec_kitty_list_ready`
 - `spec_kitty_start_implementation`
 - `spec_kitty_start_review`
+- `spec_kitty_transition`
+- `spec_kitty_append_history`
+- `spec_kitty_accept_mission`
 - `spec_kitty_resolve_workspace`
 
 `spec_kitty_resolve_workspace` is omitted when the negotiated contract is
 older than 1.2.0. Each server process is permanently bound to the project root
 provided at launch; tool calls cannot select another checkout.
 
-The two start tools require a structured `policy` object. Codex should request
-confirmation before calling them under the configuration above. A successful
-implementation start may return `no_op: true` when the same actor already owns
-an in-progress work package; failed claims and guard decisions remain visible
-through Spec Kitty's original `error_code` and `correlation_id`.
+Codex should request confirmation before calling any state-changing tool under
+the configuration above. Run-affecting transitions require a structured
+`policy` object; review results and terminal evidence are also structured
+objects rather than raw JSON strings. A successful implementation start may
+return `no_op: true` when the same actor already owns an in-progress work
+package. Failed transitions and acceptance guards remain visible through Spec
+Kitty's original `error_code` and `correlation_id`.
 
 See the official [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp.md)
 for shared-host configuration, approval modes, and other MCP settings.

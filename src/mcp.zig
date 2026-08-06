@@ -520,6 +520,9 @@ test "requests are gated until the initialized notification" {
     try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_list_ready\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_start_implementation\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_start_review\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_transition\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_append_history\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_accept_mission\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, ready, "\"readOnlyHint\":false") != null);
 }
 
@@ -687,6 +690,16 @@ test "mutation tool calls preserve idempotent and guard outcomes" {
     try std.testing.expectEqualStrings(
         "{\"jsonrpc\":\"2.0\",\"id\":19,\"error\":{\"code\":-32602,\"message\":\"Invalid tool arguments\"}}\n",
         invalid,
+    );
+
+    const forced = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"spec_kitty_transition\",\"arguments\":{\"mission\":\"042-test\",\"wp\":\"WP01\",\"to\":\"done\",\"actor\":\"codex\",\"force\":true}}}",
+    );
+    defer std.testing.allocator.free(forced);
+    try std.testing.expectEqualStrings(
+        "{\"jsonrpc\":\"2.0\",\"id\":20,\"error\":{\"code\":-32602,\"message\":\"Invalid tool arguments\"}}\n",
+        forced,
     );
 }
 

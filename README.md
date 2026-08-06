@@ -9,9 +9,9 @@ Spec Kitty. It gives MCP clients typed tools while leaving workflow rules,
 state transitions, dependency checks, worktree paths, acceptance, and merge
 preflights under Spec Kitty's control.
 
-> **Status:** guarded run starts available. The Zig server exposes the complete
-> read-only surface plus policy-recorded implementation and review starts while
-> preserving canonical success and failure envelopes.
+> **Status:** guarded workflow mutations available. The Zig server exposes the
+> complete read-only and non-merge mutation surface while preserving policy,
+> audit, correlation, success, and failure information.
 
 ## Why this exists
 
@@ -118,9 +118,10 @@ src/
 
 The current catalog exposes `spec_kitty_contract_version`,
 `spec_kitty_mission_state`, `spec_kitty_list_ready`,
-`spec_kitty_start_implementation`, and `spec_kitty_start_review`. When the
-negotiated contract is at least 1.2.0, it also exposes
-`spec_kitty_resolve_workspace`.
+`spec_kitty_start_implementation`, `spec_kitty_start_review`,
+`spec_kitty_transition`, `spec_kitty_append_history`, and
+`spec_kitty_accept_mission`. When the negotiated contract is at least 1.2.0,
+it also exposes `spec_kitty_resolve_workspace`.
 
 ## Building and running
 
