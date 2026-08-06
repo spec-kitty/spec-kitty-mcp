@@ -52,7 +52,7 @@ project.
 
 ## Milestone 4: read-only tools
 
-- [ ] Implement `spec_kitty_contract_version`.
+- [x] Implement `spec_kitty_contract_version`.
 - [x] Implement `spec_kitty_mission_state`.
 - [x] Implement `spec_kitty_list_ready`.
 - [ ] Implement `spec_kitty_resolve_workspace` with capability gating.

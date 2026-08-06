@@ -9,9 +9,9 @@ Spec Kitty. It gives MCP clients typed tools while leaving workflow rules,
 state transitions, dependency checks, worktree paths, acceptance, and merge
 preflights under Spec Kitty's control.
 
-> **Status:** first read-only tools implemented. The Zig server exposes mission
-> state and ready-work-package queries while preserving Spec Kitty's canonical
-> success and failure envelopes. Additional read-only tools are next.
+> **Status:** core read-only tools implemented. The Zig server exposes contract
+> compatibility, mission state, and ready-work-package queries while preserving
+> Spec Kitty's canonical success and failure envelopes.
 
 ## Why this exists
 
@@ -115,9 +115,9 @@ src/
 └── tools.zig             MCP schemas, validation, and fixed command dispatch
 ```
 
-The current catalog exposes `spec_kitty_mission_state` and
-`spec_kitty_list_ready`. Remaining read-only tools arrive in subsequent small
-slices.
+The current catalog exposes `spec_kitty_contract_version`,
+`spec_kitty_mission_state`, and `spec_kitty_list_ready`. Capability-gated
+workspace resolution arrives in the next small slice.
 
 ## Building and running
 
