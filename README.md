@@ -191,6 +191,7 @@ Codex CLI, the IDE extension, or the ChatGPT desktop app.
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Installation and upgrades](docs/installation.md)
 - [Codex setup](docs/codex-setup.md)
 - [Tool contract](docs/tool-contract.md)
 - [Development plan](docs/development-plan.md)

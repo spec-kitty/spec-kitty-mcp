@@ -82,7 +82,7 @@ and failure information, with no adapter-side state edits.
 - [x] Test dirty-worktree, divergence, missing-work-package, and strategy
   failures in disposable repositories.
 - [x] Add packaging and checksums for a standalone binary.
-- [ ] Add installation and upgrade documentation.
+- [x] Add installation and upgrade documentation.
 - [ ] Publish an initial tagged release.
 
 Exit condition: the release artifact can be installed, configured, exercised,
