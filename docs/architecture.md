@@ -101,8 +101,8 @@ listed merely because a similarly named command might exist.
 ## Internal modules
 
 The foundation, MCP protocol, Spec Kitty subprocess, complete read-only tool
-dispatch, and guarded implementation/review starts exist today. Remaining
-mutation tools arrive in guarded slices.
+dispatch, and guarded non-merge mutations exist today. The merge boundary
+remains a separate release slice because it can change Git history and push.
 
 ### `main.zig`
 

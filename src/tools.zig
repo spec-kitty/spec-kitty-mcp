@@ -39,6 +39,17 @@ const BooleanSchema = struct {
     type: []const u8 = "boolean",
 };
 
+const DescribedBooleanSchema = struct {
+    type: []const u8 = "boolean",
+    description: []const u8,
+};
+
+const StructuredObjectSchema = struct {
+    type: []const u8 = "object",
+    description: []const u8,
+    additionalProperties: bool = true,
+};
+
 const EnvelopeProperties = struct {
     contract_version: StringSchema = .{
         .description = "Spec Kitty orchestrator contract version.",
@@ -208,12 +219,97 @@ const StartReviewInputSchema = struct {
     additionalProperties: bool = false,
 };
 
+const TransitionProperties = struct {
+    mission: StringSchema = .{
+        .description = "Spec Kitty mission slug, for example 042-test-mission.",
+    },
+    wp: StringSchema = .{
+        .description = "Work-package identifier, for example WP01.",
+    },
+    to: StringSchema = .{
+        .description = "Target Spec Kitty lane.",
+    },
+    actor: StringSchema = .{
+        .description = "Auditable identity requesting the transition.",
+    },
+    note: StringSchema = .{
+        .description = "Optional audit note explaining the transition.",
+    },
+    policy: PolicySchema = .{},
+    review_ref: StringSchema = .{
+        .description = "Optional reference to an external review artifact.",
+    },
+    review_result: StructuredObjectSchema = .{
+        .description = "Structured review outcome passed to Spec Kitty.",
+    },
+    evidence: StructuredObjectSchema = .{
+        .description = "Structured terminal evidence passed to Spec Kitty.",
+    },
+    subtasks_complete: DescribedBooleanSchema = .{
+        .description = "Assert that required subtasks are complete.",
+    },
+    implementation_evidence_present: DescribedBooleanSchema = .{
+        .description = "Assert that implementation evidence exists.",
+    },
+};
+
+const TransitionInputSchema = struct {
+    @"$schema": []const u8 = schema_dialect,
+    type: []const u8 = "object",
+    properties: TransitionProperties = .{},
+    required: []const []const u8 = &.{ "mission", "wp", "to", "actor" },
+    additionalProperties: bool = false,
+};
+
+const HistoryProperties = struct {
+    mission: StringSchema = .{
+        .description = "Spec Kitty mission slug, for example 042-test-mission.",
+    },
+    wp: StringSchema = .{
+        .description = "Work-package identifier, for example WP01.",
+    },
+    actor: StringSchema = .{
+        .description = "Auditable identity authoring the history entry.",
+    },
+    note: StringSchema = .{
+        .description = "History note to append.",
+    },
+};
+
+const HistoryInputSchema = struct {
+    @"$schema": []const u8 = schema_dialect,
+    type: []const u8 = "object",
+    properties: HistoryProperties = .{},
+    required: []const []const u8 = &.{ "mission", "wp", "actor", "note" },
+    additionalProperties: bool = false,
+};
+
+const AcceptProperties = struct {
+    mission: StringSchema = .{
+        .description = "Spec Kitty mission slug, for example 042-test-mission.",
+    },
+    actor: StringSchema = .{
+        .description = "Auditable identity requesting mission acceptance.",
+    },
+};
+
+const AcceptInputSchema = struct {
+    @"$schema": []const u8 = schema_dialect,
+    type: []const u8 = "object",
+    properties: AcceptProperties = .{},
+    required: []const []const u8 = &.{ "mission", "actor" },
+    additionalProperties: bool = false,
+};
+
 const InputSchema = union(enum) {
     contract: ContractInputSchema,
     mission: MissionInputSchema,
     workspace: WorkspaceInputSchema,
     start_implementation: StartImplementationInputSchema,
     start_review: StartReviewInputSchema,
+    transition: TransitionInputSchema,
+    history: HistoryInputSchema,
+    accept: AcceptInputSchema,
 
     pub fn jsonStringify(schema: InputSchema, stringify: anytype) !void {
         switch (schema) {
@@ -222,6 +318,9 @@ const InputSchema = union(enum) {
             .workspace => |value| try stringify.write(value),
             .start_implementation => |value| try stringify.write(value),
             .start_review => |value| try stringify.write(value),
+            .transition => |value| try stringify.write(value),
+            .history => |value| try stringify.write(value),
+            .accept => |value| try stringify.write(value),
         }
     }
 };
@@ -282,6 +381,39 @@ pub const catalog = [_]Definition{
         .inputSchema = .{ .start_review = .{} },
         .annotations = .{
             .title = "Start a Spec Kitty work-package review",
+            .readOnlyHint = false,
+            .idempotentHint = false,
+        },
+    },
+    .{
+        .name = "spec_kitty_transition",
+        .title = "Spec Kitty Transition Work Package",
+        .description = "Request one guarded work-package lane transition through Spec Kitty without exposing force.",
+        .inputSchema = .{ .transition = .{} },
+        .annotations = .{
+            .title = "Transition a Spec Kitty work package",
+            .readOnlyHint = false,
+            .idempotentHint = false,
+        },
+    },
+    .{
+        .name = "spec_kitty_append_history",
+        .title = "Spec Kitty Append History",
+        .description = "Append an auditable work-package history note through Spec Kitty.",
+        .inputSchema = .{ .history = .{} },
+        .annotations = .{
+            .title = "Append Spec Kitty work-package history",
+            .readOnlyHint = false,
+            .idempotentHint = false,
+        },
+    },
+    .{
+        .name = "spec_kitty_accept_mission",
+        .title = "Spec Kitty Accept Mission",
+        .description = "Request guarded mission acceptance after Spec Kitty verifies all work packages.",
+        .inputSchema = .{ .accept = .{} },
+        .annotations = .{
+            .title = "Accept a Spec Kitty mission",
             .readOnlyHint = false,
             .idempotentHint = false,
         },
@@ -407,6 +539,94 @@ pub fn invoke(
         );
     }
 
+    if (std.mem.eql(u8, name, "spec_kitty_transition")) {
+        const transition = try parseTransition(arguments);
+        const policy = if (transition.policy) |value|
+            try serializeJson(allocator, value)
+        else
+            null;
+        defer if (policy) |owned| allocator.free(owned);
+        const review_result = if (transition.review_result) |value|
+            try serializeJson(allocator, value)
+        else
+            null;
+        defer if (review_result) |owned| allocator.free(owned);
+        const evidence = if (transition.evidence) |value|
+            try serializeJson(allocator, value)
+        else
+            null;
+        defer if (evidence) |owned| allocator.free(owned);
+
+        var argv: std.ArrayList([]const u8) = .empty;
+        defer argv.deinit(allocator);
+        try argv.appendSlice(allocator, &.{
+            "--mission",
+            transition.mission,
+            "--wp",
+            transition.wp,
+            "--to",
+            transition.to,
+            "--actor",
+            transition.actor,
+        });
+        if (transition.note) |note| {
+            try argv.appendSlice(allocator, &.{ "--note", note });
+        }
+        if (policy) |value| {
+            try argv.appendSlice(allocator, &.{ "--policy", value });
+        }
+        if (transition.review_ref) |review_ref| {
+            try argv.appendSlice(allocator, &.{ "--review-ref", review_ref });
+        }
+        if (review_result) |value| {
+            try argv.appendSlice(allocator, &.{ "--review-result-json", value });
+        }
+        if (evidence) |value| {
+            try argv.appendSlice(allocator, &.{ "--evidence-json", value });
+        }
+        if (transition.subtasks_complete) {
+            try argv.append(allocator, "--subtasks-complete");
+        }
+        if (transition.implementation_evidence_present) {
+            try argv.append(allocator, "--implementation-evidence-present");
+        }
+        return client.invoke(allocator, io, "transition", argv.items);
+    }
+
+    if (std.mem.eql(u8, name, "spec_kitty_append_history")) {
+        const history = try parseHistory(arguments);
+        return client.invoke(
+            allocator,
+            io,
+            "append-history",
+            &.{
+                "--mission",
+                history.mission,
+                "--wp",
+                history.wp,
+                "--actor",
+                history.actor,
+                "--note",
+                history.note,
+            },
+        );
+    }
+
+    if (std.mem.eql(u8, name, "spec_kitty_accept_mission")) {
+        const acceptance = try parseAcceptance(arguments);
+        return client.invoke(
+            allocator,
+            io,
+            "accept-mission",
+            &.{
+                "--mission",
+                acceptance.mission,
+                "--actor",
+                acceptance.actor,
+            },
+        );
+    }
+
     const subcommand = if (std.mem.eql(u8, name, "spec_kitty_mission_state"))
         "mission-state"
     else if (std.mem.eql(u8, name, "spec_kitty_list_ready"))
@@ -443,8 +663,35 @@ const StartReviewArguments = struct {
     review_ref: ?[]const u8,
 };
 
+const TransitionArguments = struct {
+    mission: []const u8,
+    wp: []const u8,
+    to: []const u8,
+    actor: []const u8,
+    note: ?[]const u8,
+    policy: ?std.json.Value,
+    review_ref: ?[]const u8,
+    review_result: ?std.json.Value,
+    evidence: ?std.json.Value,
+    subtasks_complete: bool,
+    implementation_evidence_present: bool,
+};
+
+const HistoryArguments = struct {
+    mission: []const u8,
+    wp: []const u8,
+    actor: []const u8,
+    note: []const u8,
+};
+
+const AcceptanceArguments = struct {
+    mission: []const u8,
+    actor: []const u8,
+};
+
 fn parseStartImplementation(arguments: ?std.json.Value) !StartImplementationArguments {
     const object = try argumentsObject(arguments, 4, 4);
+    try ensureOnlyKeys(object, .{ "mission", "wp", "actor", "policy" });
     return .{
         .mission = try requiredString(object, "mission"),
         .wp = try requiredString(object, "wp"),
@@ -455,15 +702,72 @@ fn parseStartImplementation(arguments: ?std.json.Value) !StartImplementationArgu
 
 fn parseStartReview(arguments: ?std.json.Value) !StartReviewArguments {
     const object = try argumentsObject(arguments, 4, 5);
-    if (object.count() == 5 and object.get("review_ref") == null) {
-        return error.InvalidArguments;
-    }
+    try ensureOnlyKeys(object, .{ "mission", "wp", "actor", "policy", "review_ref" });
     return .{
         .mission = try requiredString(object, "mission"),
         .wp = try requiredString(object, "wp"),
         .actor = try requiredString(object, "actor"),
         .policy = try requiredPolicy(object),
         .review_ref = try optionalString(object, "review_ref"),
+    };
+}
+
+fn parseTransition(arguments: ?std.json.Value) !TransitionArguments {
+    const object = try argumentsObject(arguments, 4, 11);
+    try ensureOnlyKeys(object, .{
+        "mission",
+        "wp",
+        "to",
+        "actor",
+        "note",
+        "policy",
+        "review_ref",
+        "review_result",
+        "evidence",
+        "subtasks_complete",
+        "implementation_evidence_present",
+    });
+
+    const target = try requiredString(object, "to");
+    const policy = try optionalPolicy(object);
+    if (isRunAffectingLane(target) and policy == null) {
+        return error.InvalidArguments;
+    }
+    return .{
+        .mission = try requiredString(object, "mission"),
+        .wp = try requiredString(object, "wp"),
+        .to = target,
+        .actor = try requiredString(object, "actor"),
+        .note = try optionalString(object, "note"),
+        .policy = policy,
+        .review_ref = try optionalString(object, "review_ref"),
+        .review_result = try optionalObject(object, "review_result"),
+        .evidence = try optionalObject(object, "evidence"),
+        .subtasks_complete = try optionalBoolean(object, "subtasks_complete"),
+        .implementation_evidence_present = try optionalBoolean(
+            object,
+            "implementation_evidence_present",
+        ),
+    };
+}
+
+fn parseHistory(arguments: ?std.json.Value) !HistoryArguments {
+    const object = try argumentsObject(arguments, 4, 4);
+    try ensureOnlyKeys(object, .{ "mission", "wp", "actor", "note" });
+    return .{
+        .mission = try requiredString(object, "mission"),
+        .wp = try requiredString(object, "wp"),
+        .actor = try requiredString(object, "actor"),
+        .note = try requiredString(object, "note"),
+    };
+}
+
+fn parseAcceptance(arguments: ?std.json.Value) !AcceptanceArguments {
+    const object = try argumentsObject(arguments, 2, 2);
+    try ensureOnlyKeys(object, .{ "mission", "actor" });
+    return .{
+        .mission = try requiredString(object, "mission"),
+        .actor = try requiredString(object, "actor"),
     };
 }
 
@@ -483,14 +787,41 @@ fn argumentsObject(
     return object;
 }
 
+fn ensureOnlyKeys(object: std.json.ObjectMap, comptime allowed: anytype) !void {
+    var iterator = object.iterator();
+    while (iterator.next()) |entry| {
+        var known = false;
+        inline for (allowed) |key| {
+            if (std.mem.eql(u8, entry.key_ptr.*, key)) known = true;
+        }
+        if (!known) return error.InvalidArguments;
+    }
+}
+
 fn requiredPolicy(object: std.json.ObjectMap) !std.json.Value {
     const value = object.get("policy") orelse return error.InvalidArguments;
+    return validatePolicy(value);
+}
+
+fn optionalPolicy(object: std.json.ObjectMap) !?std.json.Value {
+    const value = object.get("policy") orelse return null;
+    return try validatePolicy(value);
+}
+
+fn validatePolicy(value: std.json.Value) !std.json.Value {
     if (value != .object) return error.InvalidArguments;
     const policy = value.object;
     if (policy.count() < 7 or policy.count() > 8) return error.InvalidArguments;
-    if (policy.count() == 8 and policy.get("tool_restrictions") == null) {
-        return error.InvalidArguments;
-    }
+    try ensureOnlyKeys(policy, .{
+        "orchestrator_id",
+        "orchestrator_version",
+        "agent_family",
+        "approval_mode",
+        "sandbox_mode",
+        "network_mode",
+        "dangerous_flags",
+        "tool_restrictions",
+    });
 
     inline for (.{
         "orchestrator_id",
@@ -528,10 +859,24 @@ fn serializePolicy(
     allocator: std.mem.Allocator,
     policy: std.json.Value,
 ) ![]u8 {
+    return serializeJson(allocator, policy);
+}
+
+fn serializeJson(
+    allocator: std.mem.Allocator,
+    value: std.json.Value,
+) ![]u8 {
     var output: Io.Writer.Allocating = .init(allocator);
     errdefer output.deinit();
-    try std.json.Stringify.value(policy, .{}, &output.writer);
+    try std.json.Stringify.value(value, .{}, &output.writer);
     return output.toOwnedSlice();
+}
+
+fn isRunAffectingLane(target: []const u8) bool {
+    return std.mem.eql(u8, target, "claimed") or
+        std.mem.eql(u8, target, "in_progress") or
+        std.mem.eql(u8, target, "for_review") or
+        std.mem.eql(u8, target, "in_review");
 }
 
 fn parseWorkspace(arguments: ?std.json.Value) !WorkspaceArguments {
@@ -558,6 +903,18 @@ fn optionalString(object: std.json.ObjectMap, key: []const u8) !?[]const u8 {
     const value = object.get(key) orelse return null;
     try validateStringValue(value);
     return value.string;
+}
+
+fn optionalObject(object: std.json.ObjectMap, key: []const u8) !?std.json.Value {
+    const value = object.get(key) orelse return null;
+    if (value != .object) return error.InvalidArguments;
+    return value;
+}
+
+fn optionalBoolean(object: std.json.ObjectMap, key: []const u8) !bool {
+    const value = object.get(key) orelse return false;
+    if (value != .bool) return error.InvalidArguments;
+    return value.bool;
 }
 
 fn validateStringValue(value: std.json.Value) !void {
@@ -656,6 +1013,49 @@ fn makeFakeExecutable(
         \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.start-review","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-review","success":true,"error_code":null,"data":{"from_lane":"for_review","to_lane":"in_review","prompt_path":"/tmp/WP01.md","policy_metadata_recorded":true}}'
         \\  exit 0
         \\fi
+        \\if [ "$2" = "transition" ]; then
+        \\  if [ "$8" = "blocked" ]; then
+        \\    printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.transition","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-transition-rejected","success":false,"error_code":"TRANSITION_REJECTED","data":{"from_lane":"in_progress","requested_lane":"blocked"}}'
+        \\    exit 1
+        \\  fi
+        \\  if [ "$8" = "approved" ] && [ "$#" -eq 10 ]; then
+        \\    printf '%s\n' 'transition-argv=validated' >&2
+        \\    printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.transition","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-transition","success":true,"error_code":null,"data":{"from_lane":"in_review","to_lane":"approved"}}'
+        \\    exit 0
+        \\  fi
+        \\  expected_policy='{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[]}'
+        \\  expected_review='{"reviewer":"codex","verdict":"approved"}'
+        \\  expected_evidence='{"review":{"reference":"PR #42"}}'
+        \\  if [ "$#" -ne 22 ] || [ "${10}" != 'reviewer;$(no-shell)' ] || [ "${11}" != "--note" ] || [ "${12}" != 'Approved;$(no-shell)' ] || [ "${13}" != "--policy" ] || [ "${14}" != "$expected_policy" ] || [ "${15}" != "--review-ref" ] || [ "${16}" != 'PR #42;$(no-shell)' ] || [ "${17}" != "--review-result-json" ] || [ "${18}" != "$expected_review" ] || [ "${19}" != "--evidence-json" ] || [ "${20}" != "$expected_evidence" ] || [ "${21}" != "--subtasks-complete" ] || [ "${22}" != "--implementation-evidence-present" ]; then
+        \\    printf '%s\n' 'transition-argv-mismatch' >&2
+        \\    exit 2
+        \\  fi
+        \\  printf '%s\n' 'transition-argv=validated' >&2
+        \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.transition","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-transition","success":true,"error_code":null,"data":{"from_lane":"in_review","to_lane":"done"}}'
+        \\  exit 0
+        \\fi
+        \\if [ "$2" = "append-history" ]; then
+        \\  if [ "$#" -ne 10 ] || [ "$9" != "--note" ] || [ "${10}" != 'Tests passed;$(no-shell)' ]; then
+        \\    printf '%s\n' 'history-argv-mismatch' >&2
+        \\    exit 2
+        \\  fi
+        \\  printf '%s\n' 'history-argv=validated' >&2
+        \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.append-history","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-history","success":true,"error_code":null,"data":{"history_entry_id":"entry-1"}}'
+        \\  exit 0
+        \\fi
+        \\if [ "$2" = "accept-mission" ]; then
+        \\  if [ "$4" = "not-ready" ]; then
+        \\    printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.accept-mission","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-not-ready","success":false,"error_code":"MISSION_NOT_READY","data":{"blocking_wps":["WP02"]}}'
+        \\    exit 1
+        \\  fi
+        \\  if [ "$#" -ne 6 ] || [ "$5" != "--actor" ]; then
+        \\    printf '%s\n' 'accept-argv-mismatch' >&2
+        \\    exit 2
+        \\  fi
+        \\  printf '%s\n' 'accept-argv=validated' >&2
+        \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.accept-mission","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-accept","success":true,"error_code":null,"data":{"accepted":true,"accepted_wps":["WP01"],"approved_wps":["WP01"],"done_wps":[],"merge_pending_wps":["WP01"]}}'
+        \\  exit 0
+        \\fi
         \\printf '{"contract_version":"1.3.0","command":"orchestrator-api.%s","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-query","success":true,"error_code":null,"data":{"mission_slug":"%s"}}\n' "$2" "$4"
     ;
     try dir.writeFile(std.testing.io, .{
@@ -679,13 +1079,18 @@ test "catalog publishes typed read-only and guarded mutation tools" {
     try std.json.Stringify.value(catalog, .{}, &output.writer);
     const json = output.written();
 
-    try std.testing.expectEqual(@as(usize, 6), catalog.len);
+    try std.testing.expectEqual(@as(usize, 9), catalog.len);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_contract_version\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_mission_state\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_list_ready\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_resolve_workspace\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_start_implementation\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_start_review\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_transition\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_append_history\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_accept_mission\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"review_result\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"implementation_evidence_present\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"orchestrator_id\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"dangerous_flags\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"additionalProperties\":false") != null);
@@ -696,6 +1101,10 @@ test "catalog publishes typed read-only and guarded mutation tools" {
     try std.testing.expect(catalog[3].annotations.idempotentHint);
     try std.testing.expect(!catalog[4].annotations.readOnlyHint);
     try std.testing.expect(!catalog[4].annotations.idempotentHint);
+    try std.testing.expect(!catalog[5].annotations.readOnlyHint);
+    try std.testing.expect(!catalog[5].annotations.idempotentHint);
+    try std.testing.expect(!catalog[6].annotations.readOnlyHint);
+    try std.testing.expect(!catalog[7].annotations.readOnlyHint);
 }
 
 test "query tools map to fixed commands and exact mission arguments" {
@@ -865,11 +1274,11 @@ test "query tools reject unknown names and malformed arguments" {
 test "resolve-workspace is capability gated and uses exact arguments" {
     if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
 
-    try std.testing.expectEqual(@as(usize, 5), catalogForVersion(null).len);
-    try std.testing.expectEqual(@as(usize, 5), catalogForVersion("1.1.9").len);
-    try std.testing.expectEqual(@as(usize, 5), catalogForVersion("1.2.0-rc.1").len);
-    try std.testing.expectEqual(@as(usize, 6), catalogForVersion("1.2.0").len);
-    try std.testing.expectEqual(@as(usize, 6), catalogForVersion("2.0.0").len);
+    try std.testing.expectEqual(@as(usize, 8), catalogForVersion(null).len);
+    try std.testing.expectEqual(@as(usize, 8), catalogForVersion("1.1.9").len);
+    try std.testing.expectEqual(@as(usize, 8), catalogForVersion("1.2.0-rc.1").len);
+    try std.testing.expectEqual(@as(usize, 9), catalogForVersion("1.2.0").len);
+    try std.testing.expectEqual(@as(usize, 9), catalogForVersion("2.0.0").len);
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1114,4 +1523,216 @@ test "start-run tools reject raw malformed and extended policy input" {
         "0.1.0",
         "1.3.0",
     ));
+}
+
+test "transition serializes structured inputs once and uses exact optional argv" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    const request =
+        \\{"mission":"042 mission;$(no-shell)","wp":"WP01","to":"done","actor":"reviewer;$(no-shell)","note":"Approved;$(no-shell)","policy":{"orchestrator_id":"zig-mcp","orchestrator_version":"0.1.0","agent_family":"codex","approval_mode":"manual","sandbox_mode":"workspace-write","network_mode":"restricted","dangerous_flags":[]},"review_ref":"PR #42;$(no-shell)","review_result":{"reviewer":"codex","verdict":"approved"},"evidence":{"review":{"reference":"PR #42"}},"subtasks_complete":true,"implementation_evidence_present":true}
+    ;
+    var parsed = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        request,
+        .{},
+    );
+    defer parsed.deinit();
+
+    var invocation = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_transition",
+        parsed.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer invocation.deinit(std.testing.allocator);
+    try std.testing.expect(invocation.envelope().success);
+    try std.testing.expectEqualStrings("orchestrator-api.transition", invocation.envelope().command);
+    try std.testing.expectEqualStrings("corr-transition", invocation.envelope().correlation_id);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=042 mission;$(no-shell)\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "transition-argv=validated\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "zig-mcp") == null);
+
+    var false_flags = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        \\{"mission":"042-test","wp":"WP01","to":"approved","actor":"reviewer","subtasks_complete":false,"implementation_evidence_present":false}
+    ,
+        .{},
+    );
+    defer false_flags.deinit();
+    var approved = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_transition",
+        false_flags.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer approved.deinit(std.testing.allocator);
+    try std.testing.expect(approved.envelope().success);
+    try std.testing.expect(std.mem.indexOf(u8, approved.stderr, "transition-argv=validated\n") != null);
+}
+
+test "transition preserves guard failures and rejects unsafe argument shapes" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    var blocked_request = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        \\{"mission":"042-test","wp":"WP01","to":"blocked","actor":"codex"}
+    ,
+        .{},
+    );
+    defer blocked_request.deinit();
+    var blocked = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_transition",
+        blocked_request.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer blocked.deinit(std.testing.allocator);
+    try std.testing.expect(!blocked.envelope().success);
+    try std.testing.expectEqualStrings("TRANSITION_REJECTED", blocked.envelope().error_code.?);
+    try std.testing.expectEqualStrings("corr-transition-rejected", blocked.envelope().correlation_id);
+
+    const invalid_requests = [_][]const u8{
+        \\{"mission":"042-test","wp":"WP01","to":"for_review","actor":"codex"}
+        ,
+        \\{"mission":"042-test","wp":"WP01","to":"done","actor":"codex","review_result":"raw-json"}
+        ,
+        \\{"mission":"042-test","wp":"WP01","to":"done","actor":"codex","evidence":[]}
+        ,
+        \\{"mission":"042-test","wp":"WP01","to":"done","actor":"codex","force":true}
+        ,
+        \\{"mission":"042-test","wp":"WP01","to":"done","actor":"codex","subtasks_complete":"yes"}
+        ,
+    };
+    for (invalid_requests) |request| {
+        var parsed = try std.json.parseFromSlice(
+            std.json.Value,
+            std.testing.allocator,
+            request,
+            .{},
+        );
+        defer parsed.deinit();
+        try std.testing.expectError(error.InvalidArguments, invoke(
+            client,
+            std.testing.allocator,
+            std.testing.io,
+            "spec_kitty_transition",
+            parsed.value,
+            "0.1.0",
+            "1.3.0",
+        ));
+    }
+}
+
+test "history and acceptance use fixed argv and preserve acceptance guards" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    var history_request = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        \\{"mission":"042 mission;$(no-shell)","wp":"WP01","actor":"codex;$(no-shell)","note":"Tests passed;$(no-shell)"}
+    ,
+        .{},
+    );
+    defer history_request.deinit();
+    var history = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_append_history",
+        history_request.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer history.deinit(std.testing.allocator);
+    try std.testing.expect(history.envelope().success);
+    try std.testing.expectEqualStrings("corr-history", history.envelope().correlation_id);
+    try std.testing.expect(std.mem.indexOf(u8, history.stderr, "history-argv=validated\n") != null);
+
+    var acceptance_request = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        \\{"mission":"042-test","actor":"release-manager;$(no-shell)"}
+    ,
+        .{},
+    );
+    defer acceptance_request.deinit();
+    var accepted = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_accept_mission",
+        acceptance_request.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer accepted.deinit(std.testing.allocator);
+    try std.testing.expect(accepted.envelope().success);
+    try std.testing.expect(std.mem.indexOf(u8, accepted.stderr, "accept-argv=validated\n") != null);
+
+    var not_ready_request = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        \\{"mission":"not-ready","actor":"release-manager"}
+    ,
+        .{},
+    );
+    defer not_ready_request.deinit();
+    var not_ready = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_accept_mission",
+        not_ready_request.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer not_ready.deinit(std.testing.allocator);
+    try std.testing.expect(!not_ready.envelope().success);
+    try std.testing.expectEqualStrings("MISSION_NOT_READY", not_ready.envelope().error_code.?);
+    try std.testing.expectEqualStrings("corr-not-ready", not_ready.envelope().correlation_id);
 }

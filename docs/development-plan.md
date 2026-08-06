@@ -67,9 +67,9 @@ mutating it.
 - [x] Implement the structured policy schema and serialization.
 - [x] Implement `spec_kitty_start_implementation`.
 - [x] Implement `spec_kitty_start_review`.
-- [ ] Implement `spec_kitty_transition` without `force`.
-- [ ] Implement `spec_kitty_append_history`.
-- [ ] Implement `spec_kitty_accept_mission`.
+- [x] Implement `spec_kitty_transition` without `force`.
+- [x] Implement `spec_kitty_append_history`.
+- [x] Implement `spec_kitty_accept_mission`.
 - [x] Mark mutating tool annotations and document host confirmation behavior.
 - [ ] Add disposable-repository integration tests for every transition.
 
