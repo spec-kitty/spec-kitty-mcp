@@ -22,17 +22,16 @@ orchestrators. MCP gives agents a standard way to discover and call that API.
 This project connects the two without requiring a Spec Kitty fork, plugin, or
 internal code change.
 
-```text
-MCP host
-   │  JSON-RPC over stdio
-   ▼
-spec-kitty-mcp (Zig)
-   │  argv-safe child processes
-   ▼
-spec-kitty orchestrator-api
-   │
-   ▼
-Spec Kitty project and state machine
+```mermaid
+flowchart TD
+    Host["MCP host<br/>Codex, IDE, or desktop app"]
+    Adapter["spec-kitty-mcp<br/>standalone Zig server"]
+    API["spec-kitty orchestrator-api<br/>versioned JSON contract"]
+    Project["Spec Kitty project<br/>workflow state and Git worktrees"]
+
+    Host -->|"JSON-RPC over stdio"| Adapter
+    Adapter -->|"argv-safe child process"| API
+    API -->|"authoritative queries and mutations"| Project
 ```
 
 ## Design principles
@@ -97,25 +96,52 @@ have configurable timeouts and bounded captured output.
 
 ## Repository map
 
-```text
-docs/
-├── architecture.md       Process, protocol, and trust boundaries
-├── codex-setup.md        Build and MCP host configuration for Codex
-├── development-plan.md   Staged implementation and validation plan
-└── tool-contract.md      Initial MCP tool catalog and error mapping
-```
+```mermaid
+flowchart LR
+    Repo["spec-kitty-mcp/"]
 
-The implementation currently begins with:
+    subgraph Documentation["Documentation"]
+        direction TB
+        Docs["docs/"]
+        Architecture["architecture.md<br/>protocol and trust boundaries"]
+        CodexSetup["codex-setup.md<br/>Codex host configuration"]
+        Install["installation.md<br/>install and upgrade"]
+        Plan["development-plan.md<br/>milestones and validation"]
+        Release["releasing.md<br/>release procedure"]
+        Contract["tool-contract.md<br/>schemas and error mapping"]
 
-```text
-src/
-├── main.zig              Process startup and stdout-safe entry point
-├── root.zig              Reusable package surface
-├── cli.zig               Startup option parsing
-├── mcp.zig               JSON-RPC framing and MCP lifecycle
-├── project.zig           Project-root validation and canonicalization
-├── spec_kitty.zig        Bounded CLI execution and envelope parsing
-└── tools.zig             MCP schemas, validation, and fixed command dispatch
+        Docs --> Architecture
+        Docs --> CodexSetup
+        Docs --> Install
+        Docs --> Plan
+        Docs --> Release
+        Docs --> Contract
+    end
+
+    subgraph Implementation["Zig implementation"]
+        direction TB
+        Src["src/"]
+        Main["main.zig<br/>startup and stdout safety"]
+        Root["root.zig<br/>package surface"]
+        CLI["cli.zig<br/>startup options"]
+        MCP["mcp.zig<br/>JSON-RPC and MCP lifecycle"]
+        Project["project.zig<br/>project-root isolation"]
+        SpecKitty["spec_kitty.zig<br/>bounded CLI execution"]
+        Tools["tools.zig<br/>schemas and dispatch"]
+
+        Src --> Main
+        Src --> Root
+        Root --> CLI
+        Root --> MCP
+        Root --> Project
+        Root --> SpecKitty
+        Root --> Tools
+        MCP --> Tools
+        Tools --> SpecKitty
+    end
+
+    Repo --> Docs
+    Repo --> Src
 ```
 
 The current catalog exposes `spec_kitty_contract_version`,
