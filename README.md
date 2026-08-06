@@ -9,8 +9,9 @@ Spec Kitty. It gives MCP clients typed tools while leaving workflow rules,
 state transitions, dependency checks, worktree paths, acceptance, and merge
 preflights under Spec Kitty's control.
 
-> **Status:** design-first, pre-implementation. The initial contracts and
-> delivery plan are documented; the Zig server is the next milestone.
+> **Status:** foundation implemented. The Zig build, startup CLI, project-root
+> validation, and unit-test harness are working; MCP protocol handling is the
+> next milestone.
 
 ## Why this exists
 
@@ -101,21 +102,53 @@ docs/
 └── tool-contract.md      Initial MCP tool catalog and error mapping
 ```
 
-The planned implementation layout is:
+The implementation currently begins with:
 
 ```text
 src/
-├── main.zig              Process startup and stdio loop
-├── mcp.zig               JSON-RPC and MCP lifecycle
-├── tools.zig             Tool catalog, validation, and dispatch
-└── spec_kitty.zig        Safe subprocess execution and envelope parsing
+├── main.zig              Process startup and stdout-safe entry point
+├── root.zig              Reusable package surface
+├── cli.zig               Startup option parsing
+└── project.zig           Project-root validation and canonicalization
 ```
+
+The MCP, tool-dispatch, and Spec Kitty subprocess modules arrive in their
+corresponding development milestones.
 
 ## Building and running
 
-Not implemented yet. The first executable milestone will add reproducible
-`zig build`, `zig build test`, and MCP client configuration examples. Until
-then, this repository is the reviewed contract for what will be built.
+The project requires Zig 0.16.0:
+
+```bash
+zig build
+zig build test
+zig build check
+```
+
+Inspect the startup interface:
+
+```bash
+zig build run -- --help
+zig build run -- --version
+```
+
+Validate an initialized Spec Kitty checkout:
+
+```bash
+zig build run -- --project-root /path/to/spec-kitty-project
+```
+
+Use a non-default Spec Kitty executable when needed:
+
+```bash
+zig build run -- \
+  --project-root /path/to/spec-kitty-project \
+  --spec-kitty-bin /path/to/spec-kitty
+```
+
+The current executable validates configuration, logs diagnostics to stderr,
+and exits without writing to stdout. It does not speak MCP yet. Client
+configuration examples will be added once the stdio protocol loop lands.
 
 ## Non-goals
 
