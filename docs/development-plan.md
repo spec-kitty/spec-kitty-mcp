@@ -53,8 +53,8 @@ project.
 ## Milestone 4: read-only tools
 
 - [ ] Implement `spec_kitty_contract_version`.
-- [ ] Implement `spec_kitty_mission_state`.
-- [ ] Implement `spec_kitty_list_ready`.
+- [x] Implement `spec_kitty_mission_state`.
+- [x] Implement `spec_kitty_list_ready`.
 - [ ] Implement `spec_kitty_resolve_workspace` with capability gating.
 - [ ] Add a disposable-project integration smoke test.
 - [ ] Document configuration for at least one MCP host.

@@ -1,6 +1,9 @@
 const std = @import("std");
 const Io = std.Io;
 
+const spec_kitty = @import("spec_kitty.zig");
+const tools = @import("tools.zig");
+
 pub const protocol_version = "2025-11-25";
 pub const max_message_bytes = 1024 * 1024;
 
@@ -16,9 +19,26 @@ pub const SessionState = enum {
 pub const Server = struct {
     state: SessionState = .awaiting_initialize,
     version: []const u8,
+    runtime: ?Runtime = null,
+
+    const Runtime = struct {
+        client: spec_kitty.Client,
+        io: Io,
+    };
 
     pub fn init(version: []const u8) Server {
         return .{ .version = version };
+    }
+
+    pub fn initWithTools(
+        version: []const u8,
+        client: spec_kitty.Client,
+        io: Io,
+    ) Server {
+        return .{
+            .version = version,
+            .runtime = .{ .client = client, .io = io },
+        };
     }
 
     pub fn handleLine(
@@ -96,7 +116,65 @@ pub const Server = struct {
             return writeResult(writer, response_id, ToolsListResult{});
         }
 
+        if (std.mem.eql(u8, method, "tools/call")) {
+            return server.handleToolCall(
+                allocator,
+                object,
+                response_id,
+                writer,
+            );
+        }
+
         return writeError(writer, response_id, -32601, "Method not found");
+    }
+
+    fn handleToolCall(
+        server: *Server,
+        allocator: std.mem.Allocator,
+        object: std.json.ObjectMap,
+        id: std.json.Value,
+        writer: *Io.Writer,
+    ) !void {
+        const params_value = object.get("params") orelse
+            return writeError(writer, id, -32602, "Invalid tool parameters");
+        if (params_value != .object) {
+            return writeError(writer, id, -32602, "Invalid tool parameters");
+        }
+
+        const params = params_value.object;
+        if (params.get("task") != null) {
+            return writeError(writer, id, -32602, "Task-augmented calls are not supported");
+        }
+        const name = params.get("name") orelse
+            return writeError(writer, id, -32602, "Invalid tool parameters");
+        if (name != .string or name.string.len == 0) {
+            return writeError(writer, id, -32602, "Invalid tool parameters");
+        }
+
+        const runtime = server.runtime orelse
+            return writeError(writer, id, -32603, "Tool runtime unavailable");
+        var invocation = tools.invoke(
+            runtime.client,
+            allocator,
+            runtime.io,
+            name.string,
+            params.get("arguments"),
+        ) catch |err| switch (err) {
+            error.UnknownTool => return writeError(writer, id, -32602, "Unknown tool"),
+            error.InvalidArguments => return writeError(writer, id, -32602, "Invalid tool arguments"),
+            error.OutOfMemory => return err,
+            else => return writeToolExecutionError(writer, id, @errorName(err)),
+        };
+        defer invocation.deinit(allocator);
+
+        const envelope = invocation.envelope();
+        const text = std.mem.trimEnd(u8, invocation.stdout, "\r\n");
+        const content = [_]TextContent{.{ .text = text }};
+        return writeResult(writer, id, ToolEnvelopeResult{
+            .content = &content,
+            .structuredContent = envelope.*,
+            .isError = !envelope.success,
+        });
     }
 
     fn handleInitialize(
@@ -172,12 +250,24 @@ const InitializeResult = struct {
     instructions: []const u8 = "Use tools/list to discover available Spec Kitty operations.",
 };
 
-const Tool = struct {
-    name: []const u8,
+const ToolsListResult = struct {
+    tools: []const tools.Definition = &tools.catalog,
 };
 
-const ToolsListResult = struct {
-    tools: []const Tool = &.{},
+const TextContent = struct {
+    type: []const u8 = "text",
+    text: []const u8,
+};
+
+const ToolEnvelopeResult = struct {
+    content: []const TextContent,
+    structuredContent: spec_kitty.Envelope,
+    isError: bool,
+};
+
+const ToolExecutionError = struct {
+    content: []const TextContent,
+    isError: bool = true,
 };
 
 const RpcError = struct {
@@ -218,14 +308,21 @@ fn writeError(
     try writer.writeByte('\n');
 }
 
-pub fn runSession(
+fn writeToolExecutionError(
+    writer: *Io.Writer,
+    id: std.json.Value,
+    message: []const u8,
+) !void {
+    const content = [_]TextContent{.{ .text = message }};
+    return writeResult(writer, id, ToolExecutionError{ .content = &content });
+}
+
+fn runSessionWithServer(
     allocator: std.mem.Allocator,
     reader: *Io.Reader,
     writer: *Io.Writer,
-    version: []const u8,
+    server: *Server,
 ) !void {
-    var server = Server.init(version);
-
     while (true) {
         const framed = reader.takeDelimiterInclusive('\n') catch |err| switch (err) {
             error.EndOfStream => return,
@@ -237,7 +334,22 @@ pub fn runSession(
     }
 }
 
-pub fn serve(io: Io, allocator: std.mem.Allocator, version: []const u8) !void {
+pub fn runSession(
+    allocator: std.mem.Allocator,
+    reader: *Io.Reader,
+    writer: *Io.Writer,
+    version: []const u8,
+) !void {
+    var server = Server.init(version);
+    return runSessionWithServer(allocator, reader, writer, &server);
+}
+
+pub fn serve(
+    io: Io,
+    allocator: std.mem.Allocator,
+    version: []const u8,
+    client: spec_kitty.Client,
+) !void {
     const input_buffer = try allocator.alloc(u8, max_message_bytes);
     defer allocator.free(input_buffer);
 
@@ -245,11 +357,12 @@ pub fn serve(io: Io, allocator: std.mem.Allocator, version: []const u8) !void {
     var output_buffer: [64 * 1024]u8 = undefined;
     var stdout_writer = Io.File.stdout().writerStreaming(io, &output_buffer);
 
-    try runSession(
+    var server = Server.initWithTools(version, client, io);
+    try runSessionWithServer(
         allocator,
         &stdin_reader.interface,
         &stdout_writer.interface,
-        version,
+        &server,
     );
     try stdout_writer.interface.flush();
 }
@@ -260,6 +373,32 @@ fn exchange(server: *Server, line: []const u8) ![]u8 {
 
     try server.handleLine(std.testing.allocator, line, &output.writer);
     return output.toOwnedSlice();
+}
+
+fn makeFakeToolExecutable(
+    allocator: std.mem.Allocator,
+    dir: Io.Dir,
+) ![]u8 {
+    const script =
+        \\#!/bin/sh
+        \\if [ "$4" = "missing" ]; then
+        \\  printf '{"contract_version":"1.3.0","command":"orchestrator-api.%s","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-missing","success":false,"error_code":"MISSION_NOT_FOUND","data":{}}\n' "$2"
+        \\  exit 1
+        \\fi
+        \\printf '{"contract_version":"1.3.0","command":"orchestrator-api.%s","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-success","success":true,"error_code":null,"data":{"mission_slug":"%s"}}\n' "$2" "$4"
+    ;
+    try dir.writeFile(std.testing.io, .{
+        .sub_path = "fake-spec-kitty",
+        .data = script,
+        .flags = .{ .permissions = .executable_file },
+    });
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try dir.realPath(std.testing.io, &root_buffer);
+    return std.fs.path.join(allocator, &.{
+        root_buffer[0..root_len],
+        "fake-spec-kitty",
+    });
 }
 
 test "parse errors use a null response id" {
@@ -343,10 +482,9 @@ test "requests are gated until the initialized notification" {
         "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}",
     );
     defer std.testing.allocator.free(ready);
-    try std.testing.expectEqualStrings(
-        "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"tools\":[]}}\n",
-        ready,
-    );
+    try std.testing.expect(std.mem.startsWith(u8, ready, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"tools\":["));
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_mission_state\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_list_ready\"") != null);
 }
 
 test "ping is available throughout the lifecycle" {
@@ -385,6 +523,92 @@ test "unknown notifications are ignored and unknown requests receive an error" {
     );
 }
 
+test "tool calls preserve successful and failed Spec Kitty envelopes" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeToolExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    var server = Server.initWithTools("test", client, std.testing.io);
+    server.state = .ready;
+
+    const success = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"spec_kitty_mission_state\",\"arguments\":{\"mission\":\"042-test\"}}}",
+    );
+    defer std.testing.allocator.free(success);
+    try std.testing.expect(std.mem.indexOf(u8, success, "\"structuredContent\":{\"contract_version\":\"1.3.0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, success, "\"command\":\"orchestrator-api.mission-state\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, success, "\"mission_slug\":\"042-test\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, success, "\"isError\":false") != null);
+
+    const failure = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"spec_kitty_list_ready\",\"arguments\":{\"mission\":\"missing\"}}}",
+    );
+    defer std.testing.allocator.free(failure);
+    try std.testing.expect(std.mem.indexOf(u8, failure, "\"command\":\"orchestrator-api.list-ready\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, failure, "\"correlation_id\":\"corr-missing\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, failure, "\"error_code\":\"MISSION_NOT_FOUND\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, failure, "\"isError\":true") != null);
+}
+
+test "tool calls reject unknown tools and invalid arguments" {
+    const client: spec_kitty.Client = .{
+        .executable = "unused",
+        .project_root = ".",
+    };
+    var server = Server.initWithTools("test", client, std.testing.io);
+    server.state = .ready;
+
+    const unknown = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"not_a_tool\",\"arguments\":{}}}",
+    );
+    defer std.testing.allocator.free(unknown);
+    try std.testing.expectEqualStrings(
+        "{\"jsonrpc\":\"2.0\",\"id\":12,\"error\":{\"code\":-32602,\"message\":\"Unknown tool\"}}\n",
+        unknown,
+    );
+
+    const invalid = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"spec_kitty_mission_state\",\"arguments\":{\"mission\":\"\",\"extra\":true}}}",
+    );
+    defer std.testing.allocator.free(invalid);
+    try std.testing.expectEqualStrings(
+        "{\"jsonrpc\":\"2.0\",\"id\":13,\"error\":{\"code\":-32602,\"message\":\"Invalid tool arguments\"}}\n",
+        invalid,
+    );
+}
+
+test "tool execution failures are visible to the model" {
+    const client: spec_kitty.Client = .{
+        .executable = "/definitely/missing/spec-kitty",
+        .project_root = ".",
+    };
+    var server = Server.initWithTools("test", client, std.testing.io);
+    server.state = .ready;
+
+    const response = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\",\"params\":{\"name\":\"spec_kitty_mission_state\",\"arguments\":{\"mission\":\"042-test\"}}}",
+    );
+    defer std.testing.allocator.free(response);
+    try std.testing.expectEqualStrings(
+        "{\"jsonrpc\":\"2.0\",\"id\":14,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ExecutableNotFound\"}],\"isError\":true}}\n",
+        response,
+    );
+}
+
 test "duplicate initialize requests are rejected" {
     var server = Server.init("test");
     server.state = .awaiting_initialized;
@@ -413,7 +637,8 @@ test "stdio transcript is newline framed" {
 
     try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, output.written(), "\n"));
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\"id\":1") != null);
-    try std.testing.expect(std.mem.endsWith(u8, output.written(), "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[]}}\n"));
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\"id\":2,\"result\":{\"tools\":[") != null);
+    try std.testing.expect(std.mem.endsWith(u8, output.written(), "}}\n"));
 }
 
 test "an unterminated stdio frame is not processed" {

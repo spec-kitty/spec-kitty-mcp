@@ -9,9 +9,9 @@ Spec Kitty. It gives MCP clients typed tools while leaving workflow rules,
 state transitions, dependency checks, worktree paths, acceptance, and merge
 preflights under Spec Kitty's control.
 
-> **Status:** process boundary implemented. The Zig server negotiates both MCP
-> and the Spec Kitty orchestrator contract, executes bounded argv-safe child
-> processes, and validates canonical envelopes. Read-only tools are next.
+> **Status:** first read-only tools implemented. The Zig server exposes mission
+> state and ready-work-package queries while preserving Spec Kitty's canonical
+> success and failure envelopes. Additional read-only tools are next.
 
 ## Why this exists
 
@@ -111,10 +111,13 @@ src/
 ├── cli.zig               Startup option parsing
 ├── mcp.zig               JSON-RPC framing and MCP lifecycle
 ├── project.zig           Project-root validation and canonicalization
-└── spec_kitty.zig        Bounded CLI execution and envelope parsing
+├── spec_kitty.zig        Bounded CLI execution and envelope parsing
+└── tools.zig             MCP schemas, validation, and fixed command dispatch
 ```
 
-Tool dispatch arrives in the next development milestone.
+The current catalog exposes `spec_kitty_mission_state` and
+`spec_kitty_list_ready`. Remaining read-only tools arrive in subsequent small
+slices.
 
 ## Building and running
 
@@ -151,10 +154,10 @@ After validating configuration, the executable calls
 `spec-kitty orchestrator-api contract-version` with the adapter's provider
 version. It enters the MCP stdio loop only after a successful, structurally
 valid compatibility response. The loop currently implements `initialize`,
-`notifications/initialized`, `ping`, and an empty `tools/list`; EOF shuts the
-server down. Diagnostics remain on stderr and stdout contains only
-newline-delimited JSON-RPC messages. Client configuration examples will be
-added when the first useful tools land.
+`notifications/initialized`, `ping`, `tools/list`, and `tools/call`; EOF shuts
+the server down. Diagnostics remain on stderr and stdout contains only
+newline-delimited JSON-RPC messages. Successful and failed Spec Kitty
+envelopes are returned as structured tool content with a JSON text fallback.
 
 ## Non-goals
 
