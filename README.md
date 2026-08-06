@@ -238,3 +238,7 @@ Codex CLI, the IDE extension, or the ChatGPT desktop app.
 - [Tool contract](docs/tool-contract.md)
 - [Development plan](docs/development-plan.md)
 - [MCP specification](https://modelcontextprotocol.io/specification/2025-11-25)
+
+## License
+
+`spec-kitty-mcp` is available under the [MIT License](LICENSE).
