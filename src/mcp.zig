@@ -24,6 +24,7 @@ pub const Server = struct {
     const Runtime = struct {
         client: spec_kitty.Client,
         io: Io,
+        provider_version: []const u8,
     };
 
     pub fn init(version: []const u8) Server {
@@ -34,10 +35,15 @@ pub const Server = struct {
         version: []const u8,
         client: spec_kitty.Client,
         io: Io,
+        provider_version: []const u8,
     ) Server {
         return .{
             .version = version,
-            .runtime = .{ .client = client, .io = io },
+            .runtime = .{
+                .client = client,
+                .io = io,
+                .provider_version = provider_version,
+            },
         };
     }
 
@@ -159,6 +165,7 @@ pub const Server = struct {
             runtime.io,
             name.string,
             params.get("arguments"),
+            runtime.provider_version,
         ) catch |err| switch (err) {
             error.UnknownTool => return writeError(writer, id, -32602, "Unknown tool"),
             error.InvalidArguments => return writeError(writer, id, -32602, "Invalid tool arguments"),
@@ -349,6 +356,7 @@ pub fn serve(
     allocator: std.mem.Allocator,
     version: []const u8,
     client: spec_kitty.Client,
+    provider_version: []const u8,
 ) !void {
     const input_buffer = try allocator.alloc(u8, max_message_bytes);
     defer allocator.free(input_buffer);
@@ -357,7 +365,7 @@ pub fn serve(
     var output_buffer: [64 * 1024]u8 = undefined;
     var stdout_writer = Io.File.stdout().writerStreaming(io, &output_buffer);
 
-    var server = Server.initWithTools(version, client, io);
+    var server = Server.initWithTools(version, client, io, provider_version);
     try runSessionWithServer(
         allocator,
         &stdin_reader.interface,
@@ -537,7 +545,7 @@ test "tool calls preserve successful and failed Spec Kitty envelopes" {
         .executable = executable,
         .project_root = root_buffer[0..root_len],
     };
-    var server = Server.initWithTools("test", client, std.testing.io);
+    var server = Server.initWithTools("test", client, std.testing.io, "0.1.0");
     server.state = .ready;
 
     const success = try exchange(
@@ -566,7 +574,7 @@ test "tool calls reject unknown tools and invalid arguments" {
         .executable = "unused",
         .project_root = ".",
     };
-    var server = Server.initWithTools("test", client, std.testing.io);
+    var server = Server.initWithTools("test", client, std.testing.io, "0.1.0");
     server.state = .ready;
 
     const unknown = try exchange(
@@ -595,7 +603,7 @@ test "tool execution failures are visible to the model" {
         .executable = "/definitely/missing/spec-kitty",
         .project_root = ".",
     };
-    var server = Server.initWithTools("test", client, std.testing.io);
+    var server = Server.initWithTools("test", client, std.testing.io, "0.1.0");
     server.state = .ready;
 
     const response = try exchange(

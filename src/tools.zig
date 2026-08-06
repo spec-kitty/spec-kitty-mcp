@@ -75,6 +75,31 @@ const MissionInputSchema = struct {
     additionalProperties: bool = false,
 };
 
+const ContractProperties = struct {
+    provider_version: StringSchema = .{
+        .description = "Provider contract version; defaults to the adapter's version when omitted.",
+    },
+};
+
+const ContractInputSchema = struct {
+    @"$schema": []const u8 = schema_dialect,
+    type: []const u8 = "object",
+    properties: ContractProperties = .{},
+    additionalProperties: bool = false,
+};
+
+const InputSchema = union(enum) {
+    contract: ContractInputSchema,
+    mission: MissionInputSchema,
+
+    pub fn jsonStringify(schema: InputSchema, stringify: anytype) !void {
+        switch (schema) {
+            .contract => |value| try stringify.write(value),
+            .mission => |value| try stringify.write(value),
+        }
+    }
+};
+
 const ToolAnnotations = struct {
     title: []const u8,
     readOnlyHint: bool = true,
@@ -87,22 +112,31 @@ pub const Definition = struct {
     name: []const u8,
     title: []const u8,
     description: []const u8,
-    inputSchema: MissionInputSchema = .{},
+    inputSchema: InputSchema,
     outputSchema: EnvelopeSchema = .{},
     annotations: ToolAnnotations,
 };
 
 pub const catalog = [_]Definition{
     .{
+        .name = "spec_kitty_contract_version",
+        .title = "Spec Kitty Contract Version",
+        .description = "Check provider compatibility with the active Spec Kitty orchestrator contract.",
+        .inputSchema = .{ .contract = .{} },
+        .annotations = .{ .title = "Check Spec Kitty contract compatibility" },
+    },
+    .{
         .name = "spec_kitty_mission_state",
         .title = "Spec Kitty Mission State",
         .description = "Return the authoritative mission summary and work-package states from Spec Kitty.",
+        .inputSchema = .{ .mission = .{} },
         .annotations = .{ .title = "Inspect Spec Kitty mission state" },
     },
     .{
         .name = "spec_kitty_list_ready",
         .title = "Spec Kitty Ready Work Packages",
         .description = "List planned work packages whose dependencies satisfy Spec Kitty's readiness rules.",
+        .inputSchema = .{ .mission = .{} },
         .annotations = .{ .title = "List ready Spec Kitty work packages" },
     },
 };
@@ -113,7 +147,21 @@ pub fn invoke(
     io: Io,
     name: []const u8,
     arguments: ?std.json.Value,
+    default_provider_version: []const u8,
 ) !spec_kitty.Invocation {
+    if (std.mem.eql(u8, name, "spec_kitty_contract_version")) {
+        const provider_version = try parseProviderVersion(
+            arguments,
+            default_provider_version,
+        );
+        return client.invoke(
+            allocator,
+            io,
+            "contract-version",
+            &.{ "--provider-version", provider_version },
+        );
+    }
+
     const subcommand = if (std.mem.eql(u8, name, "spec_kitty_mission_state"))
         "mission-state"
     else if (std.mem.eql(u8, name, "spec_kitty_list_ready"))
@@ -128,6 +176,29 @@ pub fn invoke(
         subcommand,
         &.{ "--mission", mission },
     );
+}
+
+fn parseProviderVersion(
+    arguments: ?std.json.Value,
+    default_provider_version: []const u8,
+) ![]const u8 {
+    const value = arguments orelse return default_provider_version;
+    const object = switch (value) {
+        .object => |items| items,
+        else => return error.InvalidArguments,
+    };
+    if (object.count() == 0) return default_provider_version;
+    if (object.count() != 1) return error.InvalidArguments;
+
+    const provider_version = object.get("provider_version") orelse
+        return error.InvalidArguments;
+    if (provider_version != .string or provider_version.string.len == 0) {
+        return error.InvalidArguments;
+    }
+    if (std.mem.indexOfScalar(u8, provider_version.string, 0) != null) {
+        return error.InvalidArguments;
+    }
+    return provider_version.string;
 }
 
 fn parseMission(arguments: ?std.json.Value) ![]const u8 {
@@ -158,6 +229,14 @@ fn makeFakeExecutable(
         \\printf 'arg=%s\n' "$2" >&2
         \\printf 'arg=%s\n' "$3" >&2
         \\printf 'arg=%s\n' "$4" >&2
+        \\if [ "$2" = "contract-version" ]; then
+        \\  if [ "$4" = "0.0.0" ]; then
+        \\    printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.contract-version","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-mismatch","success":false,"error_code":"CONTRACT_VERSION_MISMATCH","data":{}}'
+        \\    exit 1
+        \\  fi
+        \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.contract-version","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-contract","success":true,"error_code":null,"data":{"api_version":"1.3.0","min_supported_provider_version":"0.1.0"}}'
+        \\  exit 0
+        \\fi
         \\printf '{"contract_version":"1.3.0","command":"orchestrator-api.%s","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-query","success":true,"error_code":null,"data":{"mission_slug":"%s"}}\n' "$2" "$4"
     ;
     try dir.writeFile(std.testing.io, .{
@@ -181,7 +260,8 @@ test "catalog publishes typed read-only tools" {
     try std.json.Stringify.value(catalog, .{}, &output.writer);
     const json = output.written();
 
-    try std.testing.expectEqual(@as(usize, 2), catalog.len);
+    try std.testing.expectEqual(@as(usize, 3), catalog.len);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_contract_version\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_mission_state\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_list_ready\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"additionalProperties\":false") != null);
@@ -218,6 +298,7 @@ test "query tools map to fixed commands and exact mission arguments" {
         std.testing.io,
         "spec_kitty_mission_state",
         parsed.value,
+        "0.1.0",
     );
     defer state.deinit(std.testing.allocator);
     try std.testing.expectEqualStrings("orchestrator-api.mission-state", state.envelope().command);
@@ -230,10 +311,78 @@ test "query tools map to fixed commands and exact mission arguments" {
         std.testing.io,
         "spec_kitty_list_ready",
         parsed.value,
+        "0.1.0",
     );
     defer ready.deinit(std.testing.allocator);
     try std.testing.expectEqualStrings("orchestrator-api.list-ready", ready.envelope().command);
     try std.testing.expect(std.mem.indexOf(u8, ready.stderr, "arg=list-ready\n") != null);
+}
+
+test "contract tool defaults and validates provider version overrides" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+
+    var defaulted = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_contract_version",
+        null,
+        "0.1.0",
+    );
+    defer defaulted.deinit(std.testing.allocator);
+    try std.testing.expect(defaulted.envelope().success);
+    try std.testing.expect(std.mem.indexOf(u8, defaulted.stderr, "arg=contract-version\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, defaulted.stderr, "arg=0.1.0\n") != null);
+
+    var parsed = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        "{\"provider_version\":\"0.0.0\"}",
+        .{},
+    );
+    defer parsed.deinit();
+    var mismatch = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_contract_version",
+        parsed.value,
+        "0.1.0",
+    );
+    defer mismatch.deinit(std.testing.allocator);
+    try std.testing.expect(!mismatch.envelope().success);
+    try std.testing.expectEqualStrings(
+        "CONTRACT_VERSION_MISMATCH",
+        mismatch.envelope().error_code.?,
+    );
+
+    var invalid = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        "{\"provider_version\":\"\",\"extra\":true}",
+        .{},
+    );
+    defer invalid.deinit();
+    try std.testing.expectError(error.InvalidArguments, invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_contract_version",
+        invalid.value,
+        "0.1.0",
+    ));
 }
 
 test "query tools reject unknown names and malformed arguments" {
@@ -248,6 +397,7 @@ test "query tools reject unknown names and malformed arguments" {
         std.testing.io,
         "not_a_tool",
         null,
+        "0.1.0",
     ));
     try std.testing.expectError(error.InvalidArguments, invoke(
         client,
@@ -255,6 +405,7 @@ test "query tools reject unknown names and malformed arguments" {
         std.testing.io,
         "spec_kitty_mission_state",
         null,
+        "0.1.0",
     ));
 
     var parsed = try std.json.parseFromSlice(
@@ -270,5 +421,6 @@ test "query tools reject unknown names and malformed arguments" {
         std.testing.io,
         "spec_kitty_list_ready",
         parsed.value,
+        "0.1.0",
     ));
 }
