@@ -3,11 +3,22 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const version = b.option(
+        []const u8,
+        "version",
+        "Version reported by the spec-kitty-mcp binary",
+    ) orelse "0.1.0-dev";
+    const strip = b.option(bool, "strip", "Strip symbols from the executable") orelse false;
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "version", version);
 
     const core = b.addModule("spec_kitty_mcp", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "build_options", .module = build_options.createModule() },
+        },
     });
 
     const exe = b.addExecutable(.{
@@ -21,6 +32,7 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    exe.root_module.strip = strip;
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

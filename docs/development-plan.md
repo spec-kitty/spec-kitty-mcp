@@ -81,7 +81,7 @@ and failure information, with no adapter-side state edits.
 - [x] Implement `spec_kitty_merge_mission` with `push: false` by default.
 - [x] Test dirty-worktree, divergence, missing-work-package, and strategy
   failures in disposable repositories.
-- [ ] Add packaging and checksums for a standalone binary.
+- [x] Add packaging and checksums for a standalone binary.
 - [ ] Add installation and upgrade documentation.
 - [ ] Publish an initial tagged release.
 

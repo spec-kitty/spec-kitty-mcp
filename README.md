@@ -142,6 +142,16 @@ zig build run -- --help
 zig build run -- --version
 ```
 
+Build a versioned, stripped standalone binary and SHA-256 sidecar for a Zig
+target:
+
+```bash
+./scripts/package-release.sh 0.1.0 x86_64-linux-musl
+```
+
+Artifacts are written to the ignored `dist/` directory. The packaging command
+verifies the checksum before returning successfully.
+
 Validate an initialized Spec Kitty checkout:
 
 ```bash

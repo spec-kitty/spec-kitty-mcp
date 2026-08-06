@@ -1,6 +1,7 @@
 # Zig build output
 .zig-cache/
 zig-out/
+dist/
 
 # Local tooling
 .idea/

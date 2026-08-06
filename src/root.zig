@@ -4,7 +4,7 @@ pub const project = @import("project.zig");
 pub const spec_kitty = @import("spec_kitty.zig");
 pub const tools = @import("tools.zig");
 
-pub const version = "0.1.0-dev";
+pub const version = @import("build_options").version;
 pub const provider_version = "0.1.0";
 
 test {
