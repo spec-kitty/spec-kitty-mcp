@@ -75,6 +75,23 @@ const MissionInputSchema = struct {
     additionalProperties: bool = false,
 };
 
+const WorkspaceProperties = struct {
+    mission: StringSchema = .{
+        .description = "Spec Kitty mission slug, for example 042-test-mission.",
+    },
+    wp: StringSchema = .{
+        .description = "Work-package identifier, for example WP01.",
+    },
+};
+
+const WorkspaceInputSchema = struct {
+    @"$schema": []const u8 = schema_dialect,
+    type: []const u8 = "object",
+    properties: WorkspaceProperties = .{},
+    required: []const []const u8 = &.{ "mission", "wp" },
+    additionalProperties: bool = false,
+};
+
 const ContractProperties = struct {
     provider_version: StringSchema = .{
         .description = "Provider contract version; defaults to the adapter's version when omitted.",
@@ -91,11 +108,13 @@ const ContractInputSchema = struct {
 const InputSchema = union(enum) {
     contract: ContractInputSchema,
     mission: MissionInputSchema,
+    workspace: WorkspaceInputSchema,
 
     pub fn jsonStringify(schema: InputSchema, stringify: anytype) !void {
         switch (schema) {
             .contract => |value| try stringify.write(value),
             .mission => |value| try stringify.write(value),
+            .workspace => |value| try stringify.write(value),
         }
     }
 };
@@ -139,7 +158,32 @@ pub const catalog = [_]Definition{
         .inputSchema = .{ .mission = .{} },
         .annotations = .{ .title = "List ready Spec Kitty work packages" },
     },
+    .{
+        .name = "spec_kitty_resolve_workspace",
+        .title = "Spec Kitty Resolve Workspace",
+        .description = "Resolve an existing work-package workspace and prompt without allocating or transitioning it.",
+        .inputSchema = .{ .workspace = .{} },
+        .annotations = .{ .title = "Resolve a Spec Kitty work-package workspace" },
+    },
 };
+
+const resolve_workspace_min_version = std.SemanticVersion{
+    .major = 1,
+    .minor = 2,
+    .patch = 0,
+};
+
+pub fn catalogForVersion(api_version: ?[]const u8) []const Definition {
+    if (api_version) |version| {
+        if (supportsResolveWorkspace(version)) return &catalog;
+    }
+    return catalog[0 .. catalog.len - 1];
+}
+
+pub fn supportsResolveWorkspace(api_version: []const u8) bool {
+    const version = std.SemanticVersion.parse(api_version) catch return false;
+    return version.order(resolve_workspace_min_version) != .lt;
+}
 
 pub fn invoke(
     client: spec_kitty.Client,
@@ -148,6 +192,7 @@ pub fn invoke(
     name: []const u8,
     arguments: ?std.json.Value,
     default_provider_version: []const u8,
+    api_version: []const u8,
 ) !spec_kitty.Invocation {
     if (std.mem.eql(u8, name, "spec_kitty_contract_version")) {
         const provider_version = try parseProviderVersion(
@@ -159,6 +204,17 @@ pub fn invoke(
             io,
             "contract-version",
             &.{ "--provider-version", provider_version },
+        );
+    }
+
+    if (std.mem.eql(u8, name, "spec_kitty_resolve_workspace")) {
+        if (!supportsResolveWorkspace(api_version)) return error.UnknownTool;
+        const workspace = try parseWorkspace(arguments);
+        return client.invoke(
+            allocator,
+            io,
+            "resolve-workspace",
+            &.{ "--mission", workspace.mission, "--wp", workspace.wp },
         );
     }
 
@@ -176,6 +232,36 @@ pub fn invoke(
         subcommand,
         &.{ "--mission", mission },
     );
+}
+
+const WorkspaceArguments = struct {
+    mission: []const u8,
+    wp: []const u8,
+};
+
+fn parseWorkspace(arguments: ?std.json.Value) !WorkspaceArguments {
+    const value = arguments orelse return error.InvalidArguments;
+    const object = switch (value) {
+        .object => |items| items,
+        else => return error.InvalidArguments,
+    };
+    if (object.count() != 2) return error.InvalidArguments;
+
+    return .{
+        .mission = try requiredString(object, "mission"),
+        .wp = try requiredString(object, "wp"),
+    };
+}
+
+fn requiredString(object: std.json.ObjectMap, key: []const u8) ![]const u8 {
+    const value = object.get(key) orelse return error.InvalidArguments;
+    if (value != .string or value.string.len == 0) {
+        return error.InvalidArguments;
+    }
+    if (std.mem.indexOfScalar(u8, value.string, 0) != null) {
+        return error.InvalidArguments;
+    }
+    return value.string;
 }
 
 fn parseProviderVersion(
@@ -209,14 +295,7 @@ fn parseMission(arguments: ?std.json.Value) ![]const u8 {
     };
 
     if (object.count() != 1) return error.InvalidArguments;
-    const mission = object.get("mission") orelse return error.InvalidArguments;
-    if (mission != .string or mission.string.len == 0) {
-        return error.InvalidArguments;
-    }
-    if (std.mem.indexOfScalar(u8, mission.string, 0) != null) {
-        return error.InvalidArguments;
-    }
-    return mission.string;
+    return requiredString(object, "mission");
 }
 
 fn makeFakeExecutable(
@@ -229,6 +308,8 @@ fn makeFakeExecutable(
         \\printf 'arg=%s\n' "$2" >&2
         \\printf 'arg=%s\n' "$3" >&2
         \\printf 'arg=%s\n' "$4" >&2
+        \\printf 'arg=%s\n' "$5" >&2
+        \\printf 'arg=%s\n' "$6" >&2
         \\if [ "$2" = "contract-version" ]; then
         \\  if [ "$4" = "0.0.0" ]; then
         \\    printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.contract-version","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-mismatch","success":false,"error_code":"CONTRACT_VERSION_MISMATCH","data":{}}'
@@ -260,10 +341,11 @@ test "catalog publishes typed read-only tools" {
     try std.json.Stringify.value(catalog, .{}, &output.writer);
     const json = output.written();
 
-    try std.testing.expectEqual(@as(usize, 3), catalog.len);
+    try std.testing.expectEqual(@as(usize, 4), catalog.len);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_contract_version\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_mission_state\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_list_ready\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_resolve_workspace\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"additionalProperties\":false") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"readOnlyHint\":true") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"destructiveHint\":false") != null);
@@ -299,6 +381,7 @@ test "query tools map to fixed commands and exact mission arguments" {
         "spec_kitty_mission_state",
         parsed.value,
         "0.1.0",
+        "1.3.0",
     );
     defer state.deinit(std.testing.allocator);
     try std.testing.expectEqualStrings("orchestrator-api.mission-state", state.envelope().command);
@@ -312,6 +395,7 @@ test "query tools map to fixed commands and exact mission arguments" {
         "spec_kitty_list_ready",
         parsed.value,
         "0.1.0",
+        "1.3.0",
     );
     defer ready.deinit(std.testing.allocator);
     try std.testing.expectEqualStrings("orchestrator-api.list-ready", ready.envelope().command);
@@ -340,6 +424,7 @@ test "contract tool defaults and validates provider version overrides" {
         "spec_kitty_contract_version",
         null,
         "0.1.0",
+        "1.3.0",
     );
     defer defaulted.deinit(std.testing.allocator);
     try std.testing.expect(defaulted.envelope().success);
@@ -360,6 +445,7 @@ test "contract tool defaults and validates provider version overrides" {
         "spec_kitty_contract_version",
         parsed.value,
         "0.1.0",
+        "1.3.0",
     );
     defer mismatch.deinit(std.testing.allocator);
     try std.testing.expect(!mismatch.envelope().success);
@@ -382,6 +468,7 @@ test "contract tool defaults and validates provider version overrides" {
         "spec_kitty_contract_version",
         invalid.value,
         "0.1.0",
+        "1.3.0",
     ));
 }
 
@@ -398,6 +485,7 @@ test "query tools reject unknown names and malformed arguments" {
         "not_a_tool",
         null,
         "0.1.0",
+        "1.3.0",
     ));
     try std.testing.expectError(error.InvalidArguments, invoke(
         client,
@@ -406,6 +494,7 @@ test "query tools reject unknown names and malformed arguments" {
         "spec_kitty_mission_state",
         null,
         "0.1.0",
+        "1.3.0",
     ));
 
     var parsed = try std.json.parseFromSlice(
@@ -422,5 +511,64 @@ test "query tools reject unknown names and malformed arguments" {
         "spec_kitty_list_ready",
         parsed.value,
         "0.1.0",
+        "1.3.0",
     ));
+}
+
+test "resolve-workspace is capability gated and uses exact arguments" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    try std.testing.expectEqual(@as(usize, 3), catalogForVersion(null).len);
+    try std.testing.expectEqual(@as(usize, 3), catalogForVersion("1.1.9").len);
+    try std.testing.expectEqual(@as(usize, 3), catalogForVersion("1.2.0-rc.1").len);
+    try std.testing.expectEqual(@as(usize, 4), catalogForVersion("1.2.0").len);
+    try std.testing.expectEqual(@as(usize, 4), catalogForVersion("2.0.0").len);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    var parsed = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        "{\"mission\":\"042 mission;$(no-shell)\",\"wp\":\"WP01\"}",
+        .{},
+    );
+    defer parsed.deinit();
+
+    try std.testing.expectError(error.UnknownTool, invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_resolve_workspace",
+        parsed.value,
+        "0.1.0",
+        "1.1.9",
+    ));
+
+    var invocation = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_resolve_workspace",
+        parsed.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer invocation.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings(
+        "orchestrator-api.resolve-workspace",
+        invocation.envelope().command,
+    );
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=resolve-workspace\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=042 mission;$(no-shell)\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=--wp\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, invocation.stderr, "arg=WP01\n") != null);
 }

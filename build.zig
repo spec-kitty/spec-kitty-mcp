@@ -38,8 +38,25 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_core_tests.step);
 
+    const smoke_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/read_only_smoke.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "spec_kitty_mcp", .module = core },
+            },
+        }),
+    });
+    const run_smoke_tests = b.addRunArtifact(smoke_tests);
+    const smoke_step = b.step(
+        "smoke-read-only",
+        "Run read-only MCP smoke tests against the installed Spec Kitty CLI",
+    );
+    smoke_step.dependOn(&run_smoke_tests.step);
+
     const fmt_check = b.addFmt(.{
-        .paths = &.{ "build.zig", "src" },
+        .paths = &.{ "build.zig", "src", "tests" },
         .check = true,
     });
 

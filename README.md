@@ -9,9 +9,9 @@ Spec Kitty. It gives MCP clients typed tools while leaving workflow rules,
 state transitions, dependency checks, worktree paths, acceptance, and merge
 preflights under Spec Kitty's control.
 
-> **Status:** core read-only tools implemented. The Zig server exposes contract
-> compatibility, mission state, and ready-work-package queries while preserving
-> Spec Kitty's canonical success and failure envelopes.
+> **Status:** read-only milestone complete. The Zig server exposes contract
+> compatibility, mission state, ready-work-package queries, and capability-gated
+> workspace resolution while preserving canonical success and failure envelopes.
 
 ## Why this exists
 
@@ -98,6 +98,7 @@ have configurable timeouts and bounded captured output.
 ```text
 docs/
 ├── architecture.md       Process, protocol, and trust boundaries
+├── codex-setup.md        Build and MCP host configuration for Codex
 ├── development-plan.md   Staged implementation and validation plan
 └── tool-contract.md      Initial MCP tool catalog and error mapping
 ```
@@ -116,8 +117,8 @@ src/
 ```
 
 The current catalog exposes `spec_kitty_contract_version`,
-`spec_kitty_mission_state`, and `spec_kitty_list_ready`. Capability-gated
-workspace resolution arrives in the next small slice.
+`spec_kitty_mission_state`, `spec_kitty_list_ready`, and—when the negotiated
+contract is at least 1.2.0—`spec_kitty_resolve_workspace`.
 
 ## Building and running
 
@@ -127,6 +128,7 @@ The project requires Zig 0.16.0:
 zig build
 zig build test
 zig build check
+zig build smoke-read-only
 ```
 
 Inspect the startup interface:
@@ -159,6 +161,9 @@ the server down. Diagnostics remain on stderr and stdout contains only
 newline-delimited JSON-RPC messages. Successful and failed Spec Kitty
 envelopes are returned as structured tool content with a JSON text fallback.
 
+See [Codex setup](docs/codex-setup.md) to register the built stdio server with
+Codex CLI, the IDE extension, or the ChatGPT desktop app.
+
 ## Non-goals
 
 - Reimplementing Spec Kitty's mission state machine
@@ -172,6 +177,7 @@ envelopes are returned as structured tool content with a JSON text fallback.
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Codex setup](docs/codex-setup.md)
 - [Tool contract](docs/tool-contract.md)
 - [Development plan](docs/development-plan.md)
 - [MCP specification](https://modelcontextprotocol.io/specification/2025-11-25)

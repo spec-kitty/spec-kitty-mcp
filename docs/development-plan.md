@@ -55,9 +55,9 @@ project.
 - [x] Implement `spec_kitty_contract_version`.
 - [x] Implement `spec_kitty_mission_state`.
 - [x] Implement `spec_kitty_list_ready`.
-- [ ] Implement `spec_kitty_resolve_workspace` with capability gating.
-- [ ] Add a disposable-project integration smoke test.
-- [ ] Document configuration for at least one MCP host.
+- [x] Implement `spec_kitty_resolve_workspace` with capability gating.
+- [x] Add a disposable-project integration smoke test.
+- [x] Document configuration for at least one MCP host.
 
 Exit condition: an MCP client can inspect a real Spec Kitty mission without
 mutating it.

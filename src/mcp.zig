@@ -25,6 +25,7 @@ pub const Server = struct {
         client: spec_kitty.Client,
         io: Io,
         provider_version: []const u8,
+        api_version: []const u8,
     };
 
     pub fn init(version: []const u8) Server {
@@ -36,6 +37,7 @@ pub const Server = struct {
         client: spec_kitty.Client,
         io: Io,
         provider_version: []const u8,
+        api_version: []const u8,
     ) Server {
         return .{
             .version = version,
@@ -43,6 +45,7 @@ pub const Server = struct {
                 .client = client,
                 .io = io,
                 .provider_version = provider_version,
+                .api_version = api_version,
             },
         };
     }
@@ -119,7 +122,13 @@ pub const Server = struct {
         }
 
         if (std.mem.eql(u8, method, "tools/list")) {
-            return writeResult(writer, response_id, ToolsListResult{});
+            const api_version: ?[]const u8 = if (server.runtime) |runtime|
+                runtime.api_version
+            else
+                null;
+            return writeResult(writer, response_id, ToolsListResult{
+                .tools = tools.catalogForVersion(api_version),
+            });
         }
 
         if (std.mem.eql(u8, method, "tools/call")) {
@@ -166,6 +175,7 @@ pub const Server = struct {
             name.string,
             params.get("arguments"),
             runtime.provider_version,
+            runtime.api_version,
         ) catch |err| switch (err) {
             error.UnknownTool => return writeError(writer, id, -32602, "Unknown tool"),
             error.InvalidArguments => return writeError(writer, id, -32602, "Invalid tool arguments"),
@@ -258,7 +268,7 @@ const InitializeResult = struct {
 };
 
 const ToolsListResult = struct {
-    tools: []const tools.Definition = &tools.catalog,
+    tools: []const tools.Definition,
 };
 
 const TextContent = struct {
@@ -357,6 +367,7 @@ pub fn serve(
     version: []const u8,
     client: spec_kitty.Client,
     provider_version: []const u8,
+    api_version: []const u8,
 ) !void {
     const input_buffer = try allocator.alloc(u8, max_message_bytes);
     defer allocator.free(input_buffer);
@@ -365,7 +376,13 @@ pub fn serve(
     var output_buffer: [64 * 1024]u8 = undefined;
     var stdout_writer = Io.File.stdout().writerStreaming(io, &output_buffer);
 
-    var server = Server.initWithTools(version, client, io, provider_version);
+    var server = Server.initWithTools(
+        version,
+        client,
+        io,
+        provider_version,
+        api_version,
+    );
     try runSessionWithServer(
         allocator,
         &stdin_reader.interface,
@@ -545,7 +562,13 @@ test "tool calls preserve successful and failed Spec Kitty envelopes" {
         .executable = executable,
         .project_root = root_buffer[0..root_len],
     };
-    var server = Server.initWithTools("test", client, std.testing.io, "0.1.0");
+    var server = Server.initWithTools(
+        "test",
+        client,
+        std.testing.io,
+        "0.1.0",
+        "1.3.0",
+    );
     server.state = .ready;
 
     const success = try exchange(
@@ -574,7 +597,13 @@ test "tool calls reject unknown tools and invalid arguments" {
         .executable = "unused",
         .project_root = ".",
     };
-    var server = Server.initWithTools("test", client, std.testing.io, "0.1.0");
+    var server = Server.initWithTools(
+        "test",
+        client,
+        std.testing.io,
+        "0.1.0",
+        "1.3.0",
+    );
     server.state = .ready;
 
     const unknown = try exchange(
@@ -598,12 +627,51 @@ test "tool calls reject unknown tools and invalid arguments" {
     );
 }
 
+test "workspace tool discovery and calls honor the negotiated contract" {
+    const client: spec_kitty.Client = .{
+        .executable = "unused",
+        .project_root = ".",
+    };
+    var server = Server.initWithTools(
+        "test",
+        client,
+        std.testing.io,
+        "0.1.0",
+        "1.1.9",
+    );
+    server.state = .ready;
+
+    const listed = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"tools/list\"}",
+    );
+    defer std.testing.allocator.free(listed);
+    try std.testing.expect(std.mem.indexOf(u8, listed, "spec_kitty_mission_state") != null);
+    try std.testing.expect(std.mem.indexOf(u8, listed, "spec_kitty_resolve_workspace") == null);
+
+    const called = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":\"tools/call\",\"params\":{\"name\":\"spec_kitty_resolve_workspace\",\"arguments\":{\"mission\":\"042-test\",\"wp\":\"WP01\"}}}",
+    );
+    defer std.testing.allocator.free(called);
+    try std.testing.expectEqualStrings(
+        "{\"jsonrpc\":\"2.0\",\"id\":16,\"error\":{\"code\":-32602,\"message\":\"Unknown tool\"}}\n",
+        called,
+    );
+}
+
 test "tool execution failures are visible to the model" {
     const client: spec_kitty.Client = .{
         .executable = "/definitely/missing/spec-kitty",
         .project_root = ".",
     };
-    var server = Server.initWithTools("test", client, std.testing.io, "0.1.0");
+    var server = Server.initWithTools(
+        "test",
+        client,
+        std.testing.io,
+        "0.1.0",
+        "1.3.0",
+    );
     server.state = .ready;
 
     const response = try exchange(

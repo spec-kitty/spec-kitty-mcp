@@ -59,6 +59,7 @@ fn run(init: std.process.Init) !u8 {
                 app.version,
                 client,
                 app.provider_version,
+                contract.api_version,
             );
         },
     }
