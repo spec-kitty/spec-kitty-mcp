@@ -55,6 +55,23 @@ pub fn build(b: *std.Build) void {
     );
     smoke_step.dependOn(&run_smoke_tests.step);
 
+    const mutation_smoke_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/mutation_smoke.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "spec_kitty_mcp", .module = core },
+            },
+        }),
+    });
+    const run_mutation_smoke_tests = b.addRunArtifact(mutation_smoke_tests);
+    const mutation_smoke_step = b.step(
+        "smoke-mutations",
+        "Run mutation MCP smoke tests against the installed Spec Kitty CLI",
+    );
+    mutation_smoke_step.dependOn(&run_mutation_smoke_tests.step);
+
     const fmt_check = b.addFmt(.{
         .paths = &.{ "build.zig", "src", "tests" },
         .check = true,

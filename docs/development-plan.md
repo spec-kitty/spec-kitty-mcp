@@ -71,7 +71,7 @@ mutating it.
 - [x] Implement `spec_kitty_append_history`.
 - [x] Implement `spec_kitty_accept_mission`.
 - [x] Mark mutating tool annotations and document host confirmation behavior.
-- [ ] Add disposable-repository integration tests for every transition.
+- [x] Add disposable-repository integration tests for every transition.
 
 Exit condition: mutation requests preserve actor, policy, correlation, guard,
 and failure information, with no adapter-side state edits.

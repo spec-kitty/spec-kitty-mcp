@@ -132,6 +132,7 @@ zig build
 zig build test
 zig build check
 zig build smoke-read-only
+zig build smoke-mutations
 ```
 
 Inspect the startup interface:
