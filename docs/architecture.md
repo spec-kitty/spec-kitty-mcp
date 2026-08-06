@@ -100,8 +100,9 @@ listed merely because a similarly named command might exist.
 
 ## Internal modules
 
-The foundation, MCP protocol, Spec Kitty subprocess, and complete read-only
-tool dispatch modules exist today. Mutation tools arrive in guarded slices.
+The foundation, MCP protocol, Spec Kitty subprocess, complete read-only tool
+dispatch, and guarded implementation/review starts exist today. Remaining
+mutation tools arrive in guarded slices.
 
 ### `main.zig`
 

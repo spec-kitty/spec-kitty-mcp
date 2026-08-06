@@ -64,13 +64,13 @@ mutating it.
 
 ## Milestone 5: guarded mutations
 
-- [ ] Implement the structured policy schema and serialization.
-- [ ] Implement `spec_kitty_start_implementation`.
-- [ ] Implement `spec_kitty_start_review`.
+- [x] Implement the structured policy schema and serialization.
+- [x] Implement `spec_kitty_start_implementation`.
+- [x] Implement `spec_kitty_start_review`.
 - [ ] Implement `spec_kitty_transition` without `force`.
 - [ ] Implement `spec_kitty_append_history`.
 - [ ] Implement `spec_kitty_accept_mission`.
-- [ ] Mark mutating tool annotations and document host confirmation behavior.
+- [x] Mark mutating tool annotations and document host confirmation behavior.
 - [ ] Add disposable-repository integration tests for every transition.
 
 Exit condition: mutation requests preserve actor, policy, correlation, guard,
