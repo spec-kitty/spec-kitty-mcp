@@ -91,9 +91,10 @@ fn expectToolResult(
     }
 }
 
-fn workspaceFromResponse(
+fn dataStringFromResponse(
     allocator: std.mem.Allocator,
     response: []const u8,
+    key: []const u8,
 ) ![]u8 {
     var parsed = try std.json.parseFromSlice(std.json.Value, allocator, response, .{});
     defer parsed.deinit();
@@ -101,10 +102,10 @@ fn workspaceFromResponse(
     const envelope = result.object.get("structuredContent") orelse
         return error.InvalidToolResponse;
     const data = envelope.object.get("data") orelse return error.InvalidToolResponse;
-    const workspace = data.object.get("workspace_path") orelse
+    const value = data.object.get(key) orelse
         return error.InvalidToolResponse;
-    if (workspace != .string) return error.InvalidToolResponse;
-    return allocator.dupe(u8, workspace.string);
+    if (value != .string) return error.InvalidToolResponse;
+    return allocator.dupe(u8, value.string);
 }
 
 fn expectDataBoolean(
@@ -124,7 +125,21 @@ fn expectDataBoolean(
     try std.testing.expectEqual(expected, actual.bool);
 }
 
-test "MCP mutations drive a disposable mission through acceptance and merge preflight" {
+fn expectRpcError(
+    allocator: std.mem.Allocator,
+    response: []const u8,
+    expected_code: i64,
+) !void {
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, response, .{});
+    defer parsed.deinit();
+    const rpc_error = parsed.value.object.get("error") orelse return error.InvalidToolResponse;
+    if (rpc_error != .object) return error.InvalidToolResponse;
+    const code = rpc_error.object.get("code") orelse return error.InvalidToolResponse;
+    if (code != .integer) return error.InvalidToolResponse;
+    try std.testing.expectEqual(expected_code, code.integer);
+}
+
+test "MCP mutations drive a disposable mission through the merge failure matrix" {
     if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
@@ -366,8 +381,10 @@ test "MCP mutations drive a disposable mission through acceptance and merge pref
     );
     defer allocator.free(started);
     try expectToolResult(allocator, started, false, null);
-    const workspace = try workspaceFromResponse(allocator, started);
+    const workspace = try dataStringFromResponse(allocator, started, "workspace_path");
     defer allocator.free(workspace);
+    const lane_branch = try dataStringFromResponse(allocator, started, "lane_branch");
+    defer allocator.free(lane_branch);
 
     const repeated = try callTool(
         allocator,
@@ -428,13 +445,15 @@ test "MCP mutations drive a disposable mission through acceptance and merge pref
     defer allocator.free(premature_review);
     try expectToolResult(allocator, premature_review, true, "TRANSITION_REJECTED");
 
-    var workspace_dir = try Io.Dir.cwd().openDir(io, workspace, .{});
-    defer workspace_dir.close(io);
-    try workspace_dir.createDirPath(io, "src");
-    try workspace_dir.writeFile(io, .{
-        .sub_path = "src/mutation-smoke.txt",
-        .data = "implemented through disposable MCP smoke\n",
-    });
+    {
+        var workspace_dir = try Io.Dir.cwd().openDir(io, workspace, .{});
+        defer workspace_dir.close(io);
+        try workspace_dir.createDirPath(io, "src");
+        try workspace_dir.writeFile(io, .{
+            .sub_path = "src/mutation-smoke.txt",
+            .data = "implemented through disposable MCP smoke\n",
+        });
+    }
     try runCommands(allocator, io, workspace, &.{
         &.{ "git", "add", "." },
         &.{ "git", "commit", "-m", "Implement mutation smoke work package" },
@@ -498,10 +517,14 @@ test "MCP mutations drive a disposable mission through acceptance and merge pref
     defer allocator.free(accepted);
     try expectToolResult(allocator, accepted, false, null);
 
-    try workspace_dir.writeFile(io, .{
-        .sub_path = "dirty-after-acceptance.txt",
-        .data = "merge must reject this dirty lane worktree\n",
-    });
+    {
+        var workspace_dir = try Io.Dir.cwd().openDir(io, workspace, .{});
+        defer workspace_dir.close(io);
+        try workspace_dir.writeFile(io, .{
+            .sub_path = "dirty-after-acceptance.txt",
+            .data = "merge must reject this dirty lane worktree\n",
+        });
+    }
     const merge_arguments = try std.fmt.allocPrint(
         allocator,
         "{{\"mission\":{f},\"strategy\":\"merge\"}}",
@@ -517,4 +540,60 @@ test "MCP mutations drive a disposable mission through acceptance and merge pref
     );
     defer allocator.free(merge);
     try expectToolResult(allocator, merge, true, "PREFLIGHT_FAILED");
+
+    {
+        var workspace_dir = try Io.Dir.cwd().openDir(io, workspace, .{});
+        defer workspace_dir.close(io);
+        try workspace_dir.deleteFile(io, "dirty-after-acceptance.txt");
+    }
+    const invalid_strategy_arguments = try std.fmt.allocPrint(
+        allocator,
+        "{{\"mission\":{f},\"strategy\":\"octopus\"}}",
+        .{std.json.fmt(mission, .{})},
+    );
+    defer allocator.free(invalid_strategy_arguments);
+    const invalid_strategy = try callTool(
+        allocator,
+        &server,
+        11,
+        "spec_kitty_merge_mission",
+        invalid_strategy_arguments,
+    );
+    defer allocator.free(invalid_strategy);
+    try expectRpcError(allocator, invalid_strategy, -32602);
+
+    try tmp.dir.createDirPath(io, "src");
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "src/mutation-smoke.txt",
+        .data = "divergent target implementation\n",
+    });
+    try runCommands(allocator, io, root, &.{
+        &.{ "git", "add", "src/mutation-smoke.txt" },
+        &.{ "git", "commit", "-m", "Create divergent target implementation" },
+    });
+    const divergent = try callTool(
+        allocator,
+        &server,
+        12,
+        "spec_kitty_merge_mission",
+        merge_arguments,
+    );
+    defer allocator.free(divergent);
+    try expectToolResult(allocator, divergent, true, "PREFLIGHT_FAILED");
+    try std.testing.expect(std.mem.indexOf(u8, divergent, "Merge conflict") != null);
+
+    try runCommands(allocator, io, root, &.{
+        &.{ "git", "worktree", "remove", "--force", workspace },
+        &.{ "git", "branch", "-D", lane_branch },
+    });
+    const missing_lane = try callTool(
+        allocator,
+        &server,
+        13,
+        "spec_kitty_merge_mission",
+        merge_arguments,
+    );
+    defer allocator.free(missing_lane);
+    try expectToolResult(allocator, missing_lane, true, "PREFLIGHT_FAILED");
+    try std.testing.expect(std.mem.indexOf(u8, missing_lane, "does not exist") != null);
 }
