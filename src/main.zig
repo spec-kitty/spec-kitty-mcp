@@ -37,6 +37,22 @@ fn run(init: std.process.Init) !u8 {
 
             std.log.info("bound to Spec Kitty project: {s}", .{project.root});
             std.log.info("Spec Kitty executable: {s}", .{options.spec_kitty_bin});
+
+            const client: app.spec_kitty.Client = .{
+                .executable = options.spec_kitty_bin,
+                .project_root = project.root,
+            };
+            var contract = client.negotiate(
+                init.gpa,
+                init.io,
+                app.provider_version,
+            ) catch |err| {
+                std.log.err("Spec Kitty contract negotiation failed: {s}", .{@errorName(err)});
+                return 1;
+            };
+            defer contract.deinit(init.gpa);
+            std.log.info("Spec Kitty orchestrator contract: {s}", .{contract.api_version});
+
             try app.mcp.serve(init.io, init.gpa, app.version);
         },
     }
