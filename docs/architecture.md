@@ -100,8 +100,8 @@ listed merely because a similarly named command might exist.
 
 ## Internal modules
 
-The foundation modules exist today. Protocol, tool-dispatch, and subprocess
-modules describe the next implementation milestones.
+The foundation and MCP protocol modules exist today. Tool-dispatch and
+subprocess modules describe the next implementation milestones.
 
 ### `main.zig`
 
