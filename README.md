@@ -135,6 +135,18 @@ zig build smoke-read-only
 zig build smoke-mutations
 ```
 
+After authenticating Codex CLI, exercise the compiled server through a real
+Codex host session:
+
+```bash
+./scripts/codex-host-smoke.sh /path/to/initialized-spec-kitty-project
+```
+
+This opt-in test uses an ephemeral, read-only Codex run with isolated MCP
+configuration. It allowlists only `spec_kitty_contract_version` and verifies
+the completed MCP tool-call event. It is intentionally not part of routine CI
+or release checks because it consumes a live Codex turn.
+
 Inspect the startup interface:
 
 ```bash

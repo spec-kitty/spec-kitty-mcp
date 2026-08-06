@@ -61,6 +61,19 @@ contract, policy, actor ownership, and workflow guards.
 
 ## Verify the tool surface
 
+With Codex CLI authenticated, first run the opt-in live-host smoke test against
+an initialized Spec Kitty project:
+
+```bash
+./scripts/codex-host-smoke.sh /path/to/initialized-spec-kitty-project
+```
+
+The script ignores normal Codex configuration for the ephemeral run, registers
+the compiled binary as a required stdio MCP server, allowlists only the
+read-only contract tool, and verifies Codex's JSONL trace contains exactly one
+completed `spec_kitty_contract_version` call. It does not persist a Codex
+session or change the user's configured MCP servers.
+
 Ask Codex to list the configured server's tools. With orchestrator contract
 1.2.0 or newer, the catalog includes:
 
