@@ -163,6 +163,10 @@ pub const Client = struct {
         if (api_version.string.len == 0 or min_provider.string.len == 0) {
             return error.InvalidContractData;
         }
+        _ = std.SemanticVersion.parse(api_version.string) catch
+            return error.InvalidContractData;
+        _ = std.SemanticVersion.parse(min_provider.string) catch
+            return error.InvalidContractData;
         if (!std.mem.eql(u8, envelope.contract_version, api_version.string)) {
             return error.InvalidContractData;
         }
@@ -289,6 +293,33 @@ test "negotiate returns the live contract fields" {
     try std.testing.expectEqualStrings("1.3.0", contract.contract_version);
     try std.testing.expectEqualStrings("1.3.0", contract.api_version);
     try std.testing.expectEqualStrings("0.1.0", contract.min_supported_provider_version);
+}
+
+test "negotiate rejects contract versions that are not semantic versions" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeExecutable(
+        std.testing.allocator,
+        tmp.dir,
+        \\#!/bin/sh
+        \\printf '%s\n' '{"contract_version":"current","command":"orchestrator-api.contract-version","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-test","success":true,"error_code":null,"data":{"api_version":"current","min_supported_provider_version":"0.1.0"}}'
+        ,
+    );
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    try std.testing.expectError(error.InvalidContractData, client.negotiate(
+        std.testing.allocator,
+        std.testing.io,
+        "0.1.0",
+    ));
 }
 
 test "valid failure envelopes remain inspectable" {
