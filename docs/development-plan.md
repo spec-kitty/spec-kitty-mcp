@@ -16,12 +16,12 @@ Exit condition: documentation consistently describes one implementable design.
 
 ## Milestone 1: Zig foundation
 
-- [ ] Add `build.zig` and `build.zig.zon` for Zig 0.16.0.
-- [ ] Add a minimal executable with strict stdout/stderr separation.
-- [ ] Parse startup options, including `--project-root` and optional
+- [x] Add `build.zig` and `build.zig.zon` for Zig 0.16.0.
+- [x] Add a minimal executable with strict stdout/stderr separation.
+- [x] Parse startup options, including `--project-root` and optional
   `--spec-kitty-bin`.
-- [ ] Canonicalize and validate the project root.
-- [ ] Add formatting, unit-test, and build checks.
+- [x] Canonicalize and validate the project root.
+- [x] Add formatting, unit-test, and build checks.
 
 Exit condition: `zig build` and `zig build test` pass from a clean checkout.
 

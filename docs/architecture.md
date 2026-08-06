@@ -100,6 +100,9 @@ listed merely because a similarly named command might exist.
 
 ## Internal modules
 
+The foundation modules exist today. Protocol, tool-dispatch, and subprocess
+modules describe the next implementation milestones.
+
 ### `main.zig`
 
 - Parse startup configuration.
@@ -108,6 +111,24 @@ listed merely because a similarly named command might exist.
 - Perform contract negotiation.
 - Own buffered stdin, stdout, and stderr.
 - Run the MCP message loop and graceful shutdown.
+
+### `root.zig`
+
+- Define the reusable package surface imported by the executable.
+- Publish the adapter version.
+- Ensure module tests are discovered from one test root.
+
+### `cli.zig`
+
+- Parse `--project-root` and `--spec-kitty-bin` without external dependencies.
+- Reject missing, duplicate, unknown, and positional arguments.
+- Publish stable help text and concise startup error descriptions.
+
+### `project.zig`
+
+- Open and canonicalize the configured project root.
+- Require Git metadata and `.kittify/config.yaml`.
+- Return an owned canonical path for the lifetime of the server process.
 
 ### `mcp.zig`
 
