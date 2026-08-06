@@ -100,8 +100,8 @@ listed merely because a similarly named command might exist.
 
 ## Internal modules
 
-The foundation, MCP protocol, and Spec Kitty subprocess modules exist today.
-Tool dispatch describes the next implementation milestone.
+The foundation, MCP protocol, Spec Kitty subprocess, and initial read-only tool
+dispatch modules exist today. Additional tools arrive in bounded slices.
 
 ### `main.zig`
 

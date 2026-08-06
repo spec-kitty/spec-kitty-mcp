@@ -53,7 +53,7 @@ fn run(init: std.process.Init) !u8 {
             defer contract.deinit(init.gpa);
             std.log.info("Spec Kitty orchestrator contract: {s}", .{contract.api_version});
 
-            try app.mcp.serve(init.io, init.gpa, app.version);
+            try app.mcp.serve(init.io, init.gpa, app.version, client);
         },
     }
 
