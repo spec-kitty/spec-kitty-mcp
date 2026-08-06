@@ -18,6 +18,13 @@ requests if the installed Spec Kitty contract is incompatible.
 
 Set the release version and target to match the asset you are installing:
 
+| Platform | Architecture | Target |
+|---|---|---|
+| Linux | x86_64 | `x86_64-linux-musl` |
+| Linux | ARM64 | `aarch64-linux-musl` |
+| macOS | Intel | `x86_64-macos` |
+| macOS | Apple Silicon | `aarch64-macos` |
+
 ```bash
 VERSION=0.1.0
 TARGET=x86_64-linux-musl
@@ -38,6 +45,7 @@ shasum -a 256 -c "${ASSET}.sha256"
 ```
 
 Do not install a binary whose checksum does not match its release sidecar.
+The initial macOS binaries are not code-signed or notarized.
 
 ## Build and install from source
 
