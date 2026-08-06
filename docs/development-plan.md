@@ -83,6 +83,7 @@ and failure information, with no adapter-side state edits.
   failures in disposable repositories.
 - [x] Add packaging and checksums for a standalone binary.
 - [x] Add installation and upgrade documentation.
+- [x] Add a clean-tree release-readiness check and release procedure.
 - [ ] Publish an initial tagged release.
 
 Exit condition: the release artifact can be installed, configured, exercised,
