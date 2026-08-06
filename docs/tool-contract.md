@@ -145,6 +145,8 @@ Runs Spec Kitty's merge preflights and merge operation.
 
 This tool has destructive potential. A host should require confirmation,
 especially when `push` is true. The adapter does not add retries.
+When `target`, `strategy`, or `push` are omitted, the adapter omits their CLI
+flags and leaves Spec Kitty's defaults authoritative.
 
 ## Policy object
 
@@ -179,6 +181,12 @@ These MCP annotations are presentation hints, not authorization. Hosts should
 apply their configured confirmation policy to these tools, and Spec Kitty
 remains responsible for policy validation, actor ownership, dependencies, and
 lane-transition guards. The adapter never retries these mutations.
+
+`spec_kitty_merge_mission` publishes `readOnlyHint: false`,
+`destructiveHint: true`, `idempotentHint: false`, and `openWorldHint: true`.
+The open-world hint is conservative because an explicitly confirmed
+`push: true` reaches the configured Git remote. Hosts should always confirm
+the merge tool and should present remote push as an especially sensitive use.
 
 ## Error rules
 

@@ -78,7 +78,7 @@ and failure information, with no adapter-side state edits.
 
 ## Milestone 6: merge boundary and release
 
-- [ ] Implement `spec_kitty_merge_mission` with `push: false` by default.
+- [x] Implement `spec_kitty_merge_mission` with `push: false` by default.
 - [ ] Test dirty-worktree, divergence, missing-work-package, and strategy
   failures in disposable repositories.
 - [ ] Add packaging and checksums for a standalone binary.

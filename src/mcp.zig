@@ -523,7 +523,10 @@ test "requests are gated until the initialized notification" {
     try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_transition\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_append_history\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_accept_mission\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"name\":\"spec_kitty_merge_mission\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, ready, "\"readOnlyHint\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"destructiveHint\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready, "\"openWorldHint\":true") != null);
 }
 
 test "ping is available throughout the lifecycle" {
@@ -700,6 +703,16 @@ test "mutation tool calls preserve idempotent and guard outcomes" {
     try std.testing.expectEqualStrings(
         "{\"jsonrpc\":\"2.0\",\"id\":20,\"error\":{\"code\":-32602,\"message\":\"Invalid tool arguments\"}}\n",
         forced,
+    );
+
+    const invalid_strategy = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"spec_kitty_merge_mission\",\"arguments\":{\"mission\":\"042-test\",\"strategy\":\"octopus\"}}}",
+    );
+    defer std.testing.allocator.free(invalid_strategy);
+    try std.testing.expectEqualStrings(
+        "{\"jsonrpc\":\"2.0\",\"id\":21,\"error\":{\"code\":-32602,\"message\":\"Invalid tool arguments\"}}\n",
+        invalid_strategy,
     );
 }
 

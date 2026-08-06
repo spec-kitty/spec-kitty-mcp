@@ -100,9 +100,9 @@ listed merely because a similarly named command might exist.
 
 ## Internal modules
 
-The foundation, MCP protocol, Spec Kitty subprocess, complete read-only tool
-dispatch, and guarded non-merge mutations exist today. The merge boundary
-remains a separate release slice because it can change Git history and push.
+The foundation, MCP protocol, Spec Kitty subprocess, and complete planned tool
+catalog exist today, including the explicitly destructive merge boundary.
+Packaging, mutation integration coverage, and release automation remain.
 
 ### `main.zig`
 

@@ -72,6 +72,7 @@ Ask Codex to list the configured server's tools. With orchestrator contract
 - `spec_kitty_transition`
 - `spec_kitty_append_history`
 - `spec_kitty_accept_mission`
+- `spec_kitty_merge_mission`
 - `spec_kitty_resolve_workspace`
 
 `spec_kitty_resolve_workspace` is omitted when the negotiated contract is
@@ -85,6 +86,11 @@ objects rather than raw JSON strings. A successful implementation start may
 return `no_op: true` when the same actor already owns an in-progress work
 package. Failed transitions and acceptance guards remain visible through Spec
 Kitty's original `error_code` and `correlation_id`.
+
+`spec_kitty_merge_mission` is marked destructive and open-world because it
+changes Git history and can optionally push. Omitting `push`, or passing
+`push: false`, keeps `--push` out of the child argv. Treat `push: true` as a
+separate explicit confirmation decision.
 
 See the official [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp.md)
 for shared-host configuration, approval modes, and other MCP settings.

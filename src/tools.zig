@@ -44,6 +44,12 @@ const DescribedBooleanSchema = struct {
     description: []const u8,
 };
 
+const EnumStringSchema = struct {
+    type: []const u8 = "string",
+    description: []const u8,
+    @"enum": []const []const u8,
+};
+
 const StructuredObjectSchema = struct {
     type: []const u8 = "object",
     description: []const u8,
@@ -301,6 +307,32 @@ const AcceptInputSchema = struct {
     additionalProperties: bool = false,
 };
 
+const merge_strategies = &.{ "merge", "squash", "rebase" };
+
+const MergeProperties = struct {
+    mission: StringSchema = .{
+        .description = "Spec Kitty mission slug, for example 042-test-mission.",
+    },
+    target: StringSchema = .{
+        .description = "Optional target branch; Spec Kitty auto-detects it when omitted.",
+    },
+    strategy: EnumStringSchema = .{
+        .description = "Merge strategy; Spec Kitty defaults to merge when omitted.",
+        .@"enum" = merge_strategies,
+    },
+    push: DescribedBooleanSchema = .{
+        .description = "Push the target branch after merging; defaults to false.",
+    },
+};
+
+const MergeInputSchema = struct {
+    @"$schema": []const u8 = schema_dialect,
+    type: []const u8 = "object",
+    properties: MergeProperties = .{},
+    required: []const []const u8 = &.{"mission"},
+    additionalProperties: bool = false,
+};
+
 const InputSchema = union(enum) {
     contract: ContractInputSchema,
     mission: MissionInputSchema,
@@ -310,6 +342,7 @@ const InputSchema = union(enum) {
     transition: TransitionInputSchema,
     history: HistoryInputSchema,
     accept: AcceptInputSchema,
+    merge: MergeInputSchema,
 
     pub fn jsonStringify(schema: InputSchema, stringify: anytype) !void {
         switch (schema) {
@@ -321,6 +354,7 @@ const InputSchema = union(enum) {
             .transition => |value| try stringify.write(value),
             .history => |value| try stringify.write(value),
             .accept => |value| try stringify.write(value),
+            .merge => |value| try stringify.write(value),
         }
     }
 };
@@ -416,6 +450,19 @@ pub const catalog = [_]Definition{
             .title = "Accept a Spec Kitty mission",
             .readOnlyHint = false,
             .idempotentHint = false,
+        },
+    },
+    .{
+        .name = "spec_kitty_merge_mission",
+        .title = "Spec Kitty Merge Mission",
+        .description = "Run Spec Kitty's guarded mission merge and preflights, with remote push disabled unless explicitly requested.",
+        .inputSchema = .{ .merge = .{} },
+        .annotations = .{
+            .title = "Merge a Spec Kitty mission",
+            .readOnlyHint = false,
+            .destructiveHint = true,
+            .idempotentHint = false,
+            .openWorldHint = true,
         },
     },
     .{
@@ -627,6 +674,21 @@ pub fn invoke(
         );
     }
 
+    if (std.mem.eql(u8, name, "spec_kitty_merge_mission")) {
+        const merge = try parseMerge(arguments);
+        var argv: std.ArrayList([]const u8) = .empty;
+        defer argv.deinit(allocator);
+        try argv.appendSlice(allocator, &.{ "--mission", merge.mission });
+        if (merge.target) |target| {
+            try argv.appendSlice(allocator, &.{ "--target", target });
+        }
+        if (merge.strategy) |strategy| {
+            try argv.appendSlice(allocator, &.{ "--strategy", strategy });
+        }
+        if (merge.push) try argv.append(allocator, "--push");
+        return client.invoke(allocator, io, "merge-mission", argv.items);
+    }
+
     const subcommand = if (std.mem.eql(u8, name, "spec_kitty_mission_state"))
         "mission-state"
     else if (std.mem.eql(u8, name, "spec_kitty_list_ready"))
@@ -687,6 +749,13 @@ const HistoryArguments = struct {
 const AcceptanceArguments = struct {
     mission: []const u8,
     actor: []const u8,
+};
+
+const MergeArguments = struct {
+    mission: []const u8,
+    target: ?[]const u8,
+    strategy: ?[]const u8,
+    push: bool,
 };
 
 fn parseStartImplementation(arguments: ?std.json.Value) !StartImplementationArguments {
@@ -768,6 +837,17 @@ fn parseAcceptance(arguments: ?std.json.Value) !AcceptanceArguments {
     return .{
         .mission = try requiredString(object, "mission"),
         .actor = try requiredString(object, "actor"),
+    };
+}
+
+fn parseMerge(arguments: ?std.json.Value) !MergeArguments {
+    const object = try argumentsObject(arguments, 1, 4);
+    try ensureOnlyKeys(object, .{ "mission", "target", "strategy", "push" });
+    return .{
+        .mission = try requiredString(object, "mission"),
+        .target = try optionalString(object, "target"),
+        .strategy = try optionalMergeStrategy(object),
+        .push = try optionalBoolean(object, "push"),
     };
 }
 
@@ -917,6 +997,14 @@ fn optionalBoolean(object: std.json.ObjectMap, key: []const u8) !bool {
     return value.bool;
 }
 
+fn optionalMergeStrategy(object: std.json.ObjectMap) !?[]const u8 {
+    const strategy = try optionalString(object, "strategy") orelse return null;
+    inline for (merge_strategies) |supported| {
+        if (std.mem.eql(u8, strategy, supported)) return strategy;
+    }
+    return error.InvalidArguments;
+}
+
 fn validateStringValue(value: std.json.Value) !void {
     if (value != .string or value.string.len == 0) {
         return error.InvalidArguments;
@@ -1056,6 +1144,24 @@ fn makeFakeExecutable(
         \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.accept-mission","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-accept","success":true,"error_code":null,"data":{"accepted":true,"accepted_wps":["WP01"],"approved_wps":["WP01"],"done_wps":[],"merge_pending_wps":["WP01"]}}'
         \\  exit 0
         \\fi
+        \\if [ "$2" = "merge-mission" ]; then
+        \\  if [ "$4" = "dirty" ]; then
+        \\    printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.merge-mission","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-preflight","success":false,"error_code":"PREFLIGHT_FAILED","data":{"errors":[{"code":"DIRTY_WORKTREE","wp_id":"WP01"}]}}'
+        \\    exit 1
+        \\  fi
+        \\  if [ "$4" = "default-target" ] && [ "$#" -eq 4 ]; then
+        \\    printf '%s\n' 'merge-defaults=validated' >&2
+        \\    printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.merge-mission","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-merge-default","success":true,"error_code":null,"data":{"merged":true,"merged_wps":["WP01"],"target_branch":"main","strategy":"merge","worktree_removed":true}}'
+        \\    exit 0
+        \\  fi
+        \\  if [ "$#" -ne 9 ] || [ "$5" != "--target" ] || [ "$6" != 'release;$(no-shell)' ] || [ "$7" != "--strategy" ] || [ "$8" != "squash" ] || [ "$9" != "--push" ]; then
+        \\    printf '%s\n' 'merge-argv-mismatch' >&2
+        \\    exit 2
+        \\  fi
+        \\  printf '%s\n' 'merge-argv=validated' >&2
+        \\  printf '%s\n' '{"contract_version":"1.3.0","command":"orchestrator-api.merge-mission","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-merge","success":true,"error_code":null,"data":{"merged":true,"merged_wps":["WP01"],"target_branch":"release","strategy":"squash","worktree_removed":true}}'
+        \\  exit 0
+        \\fi
         \\printf '{"contract_version":"1.3.0","command":"orchestrator-api.%s","timestamp":"2026-08-06T00:00:00Z","correlation_id":"corr-query","success":true,"error_code":null,"data":{"mission_slug":"%s"}}\n' "$2" "$4"
     ;
     try dir.writeFile(std.testing.io, .{
@@ -1079,7 +1185,7 @@ test "catalog publishes typed read-only and guarded mutation tools" {
     try std.json.Stringify.value(catalog, .{}, &output.writer);
     const json = output.written();
 
-    try std.testing.expectEqual(@as(usize, 9), catalog.len);
+    try std.testing.expectEqual(@as(usize, 10), catalog.len);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_contract_version\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_mission_state\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_list_ready\"") != null);
@@ -1089,6 +1195,8 @@ test "catalog publishes typed read-only and guarded mutation tools" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_transition\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_append_history\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_accept_mission\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"spec_kitty_merge_mission\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"enum\":[\"merge\",\"squash\",\"rebase\"]") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"review_result\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"implementation_evidence_present\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"orchestrator_id\"") != null);
@@ -1105,6 +1213,10 @@ test "catalog publishes typed read-only and guarded mutation tools" {
     try std.testing.expect(!catalog[5].annotations.idempotentHint);
     try std.testing.expect(!catalog[6].annotations.readOnlyHint);
     try std.testing.expect(!catalog[7].annotations.readOnlyHint);
+    try std.testing.expect(!catalog[8].annotations.readOnlyHint);
+    try std.testing.expect(catalog[8].annotations.destructiveHint);
+    try std.testing.expect(!catalog[8].annotations.idempotentHint);
+    try std.testing.expect(catalog[8].annotations.openWorldHint);
 }
 
 test "query tools map to fixed commands and exact mission arguments" {
@@ -1274,11 +1386,11 @@ test "query tools reject unknown names and malformed arguments" {
 test "resolve-workspace is capability gated and uses exact arguments" {
     if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
 
-    try std.testing.expectEqual(@as(usize, 8), catalogForVersion(null).len);
-    try std.testing.expectEqual(@as(usize, 8), catalogForVersion("1.1.9").len);
-    try std.testing.expectEqual(@as(usize, 8), catalogForVersion("1.2.0-rc.1").len);
-    try std.testing.expectEqual(@as(usize, 9), catalogForVersion("1.2.0").len);
-    try std.testing.expectEqual(@as(usize, 9), catalogForVersion("2.0.0").len);
+    try std.testing.expectEqual(@as(usize, 9), catalogForVersion(null).len);
+    try std.testing.expectEqual(@as(usize, 9), catalogForVersion("1.1.9").len);
+    try std.testing.expectEqual(@as(usize, 9), catalogForVersion("1.2.0-rc.1").len);
+    try std.testing.expectEqual(@as(usize, 10), catalogForVersion("1.2.0").len);
+    try std.testing.expectEqual(@as(usize, 10), catalogForVersion("2.0.0").len);
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1735,4 +1847,153 @@ test "history and acceptance use fixed argv and preserve acceptance guards" {
     try std.testing.expect(!not_ready.envelope().success);
     try std.testing.expectEqualStrings("MISSION_NOT_READY", not_ready.envelope().error_code.?);
     try std.testing.expectEqualStrings("corr-not-ready", not_ready.envelope().correlation_id);
+}
+
+test "merge defaults to no push and uses exact explicit argv" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    var default_request = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        \\{"mission":"default-target"}
+    ,
+        .{},
+    );
+    defer default_request.deinit();
+    var defaulted = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_merge_mission",
+        default_request.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer defaulted.deinit(std.testing.allocator);
+    try std.testing.expect(defaulted.envelope().success);
+    try std.testing.expectEqualStrings("corr-merge-default", defaulted.envelope().correlation_id);
+    try std.testing.expect(std.mem.indexOf(u8, defaulted.stderr, "merge-defaults=validated\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, defaulted.stderr, "arg=--push\n") == null);
+
+    var false_push_request = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        \\{"mission":"default-target","push":false}
+    ,
+        .{},
+    );
+    defer false_push_request.deinit();
+    var false_push = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_merge_mission",
+        false_push_request.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer false_push.deinit(std.testing.allocator);
+    try std.testing.expect(false_push.envelope().success);
+    try std.testing.expect(std.mem.indexOf(u8, false_push.stderr, "merge-defaults=validated\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, false_push.stderr, "arg=--push\n") == null);
+
+    var explicit_request = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        \\{"mission":"042 mission;$(no-shell)","target":"release;$(no-shell)","strategy":"squash","push":true}
+    ,
+        .{},
+    );
+    defer explicit_request.deinit();
+    var explicit = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_merge_mission",
+        explicit_request.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer explicit.deinit(std.testing.allocator);
+    try std.testing.expect(explicit.envelope().success);
+    try std.testing.expectEqualStrings("corr-merge", explicit.envelope().correlation_id);
+    try std.testing.expect(std.mem.indexOf(u8, explicit.stderr, "arg=042 mission;$(no-shell)\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, explicit.stderr, "merge-argv=validated\n") != null);
+}
+
+test "merge preserves preflight failures and rejects invalid options" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const executable = try makeFakeExecutable(std.testing.allocator, tmp.dir);
+    defer std.testing.allocator.free(executable);
+
+    var root_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = try tmp.dir.realPath(std.testing.io, &root_buffer);
+    const client: spec_kitty.Client = .{
+        .executable = executable,
+        .project_root = root_buffer[0..root_len],
+    };
+    var dirty_request = try std.json.parseFromSlice(
+        std.json.Value,
+        std.testing.allocator,
+        \\{"mission":"dirty"}
+    ,
+        .{},
+    );
+    defer dirty_request.deinit();
+    var dirty = try invoke(
+        client,
+        std.testing.allocator,
+        std.testing.io,
+        "spec_kitty_merge_mission",
+        dirty_request.value,
+        "0.1.0",
+        "1.3.0",
+    );
+    defer dirty.deinit(std.testing.allocator);
+    try std.testing.expect(!dirty.envelope().success);
+    try std.testing.expectEqualStrings("PREFLIGHT_FAILED", dirty.envelope().error_code.?);
+    try std.testing.expectEqualStrings("corr-preflight", dirty.envelope().correlation_id);
+
+    const invalid_requests = [_][]const u8{
+        \\{"mission":"042-test","strategy":"octopus"}
+        ,
+        \\{"mission":"042-test","push":"yes"}
+        ,
+        \\{"mission":"042-test","target":""}
+        ,
+        \\{"mission":"042-test","force":true}
+        ,
+    };
+    for (invalid_requests) |request| {
+        var parsed = try std.json.parseFromSlice(
+            std.json.Value,
+            std.testing.allocator,
+            request,
+            .{},
+        );
+        defer parsed.deinit();
+        try std.testing.expectError(error.InvalidArguments, invoke(
+            client,
+            std.testing.allocator,
+            std.testing.io,
+            "spec_kitty_merge_mission",
+            parsed.value,
+            "0.1.0",
+            "1.3.0",
+        ));
+    }
 }
