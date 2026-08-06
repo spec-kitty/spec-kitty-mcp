@@ -85,7 +85,7 @@ and failure information, with no adapter-side state edits.
 - [x] Add installation and upgrade documentation.
 - [x] Add a clean-tree release-readiness check and release procedure.
 - [x] Exercise the packaged server through an ephemeral live Codex host.
-- [ ] Publish an initial tagged release.
+- [x] Publish the initial `v0.1.0` tagged release for macOS and Linux.
 
 Exit condition: the release artifact can be installed, configured, exercised,
 and removed without changing Spec Kitty itself.

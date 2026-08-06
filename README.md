@@ -12,6 +12,8 @@ preflights under Spec Kitty's control.
 > **Status:** complete planned tool catalog available. The Zig server exposes
 > all read-only, guarded workflow, acceptance, and merge operations while
 > preserving policy, audit, correlation, success, and failure information.
+>
+> **Latest release:** [`v0.1.0`](https://github.com/LynnColeArt/spec-kitty-mcp/releases/tag/v0.1.0)
 
 ## Why this exists
 
