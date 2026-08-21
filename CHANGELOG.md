@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Continuous integration on pull requests and pushes to `main`: `zig build check`
+  plus a cross-compile of all four published targets
+- A tag-triggered release workflow that packages and publishes the linux and macOS
+  binaries with their `.sha256` sidecars, using the same
+  `scripts/package-release.sh` as a local build
+- A `workflow_dispatch` dry run that builds and uploads release artifacts without
+  creating a release
+
+### Changed
+
+- `docs/releasing.md` now describes the automated release path. Pushing the version
+  tag remains the human gate, and the two smoke suites remain a local pre-tag gate
+  because they need a live installed `spec-kitty` executable.
+
 ## 0.1.0 - 2026-08-06
 
 Initial release of the standalone Zig MCP adapter for Spec Kitty.

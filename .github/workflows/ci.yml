@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check (fmt, compile, unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        run: ./.github/scripts/install-zig.sh
+
+      - name: Check formatting, compile, and run unit tests
+        run: zig build check
+
+  build-targets:
+    name: Cross-compile ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-linux-musl
+          - aarch64-linux-musl
+          - x86_64-macos
+          - aarch64-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        run: ./.github/scripts/install-zig.sh
+
+      - name: Build release binary
+        env:
+          TARGET: ${{ matrix.target }}
+        run: zig build -Doptimize=ReleaseSafe -Dstrip=true -Dtarget="$TARGET"

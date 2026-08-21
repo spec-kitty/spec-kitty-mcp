@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build as a dry run. Must match build.zig.zon. No release is created.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Package ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Never publish a partial set of platform artifacts.
+      fail-fast: true
+      matrix:
+        target:
+          - x86_64-linux-musl
+          - aarch64-linux-musl
+          - x86_64-macos
+          - aarch64-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            version=$INPUT_VERSION
+          else
+            # refs/tags/v0.1.0 -> 0.1.0
+            version=${REF_NAME#v}
+          fi
+          ./.github/scripts/verify-version.sh "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Zig
+        run: ./.github/scripts/install-zig.sh
+
+      - name: Check formatting, compile, and run unit tests
+        run: zig build check
+
+      - name: Package release artifact
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: ./scripts/package-release.sh "$VERSION" "$TARGET"
+
+      - name: Verify reported binary version
+        if: matrix.target == 'x86_64-linux-musl'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -eu
+          reported=$(./dist/spec-kitty-mcp-"$VERSION"-x86_64-linux-musl --version)
+          [ "$reported" = "spec-kitty-mcp $VERSION" ] || {
+            echo "release: binary reported unexpected version: $reported" >&2
+            exit 1
+          }
+          echo "release: binary reports $reported"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dist/spec-kitty-mcp-*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    # Only a pushed tag publishes. A workflow_dispatch run stops after build,
+    # leaving downloadable artifacts for inspection.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          version=${REF_NAME#v}
+          ./.github/scripts/verify-version.sh "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: staged
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Verify checksums after transfer
+        working-directory: staged
+        run: |
+          set -eu
+          ls -l
+          found=0
+          for sidecar in *.sha256; do
+            [ -e "$sidecar" ] || continue
+            sha256sum -c "$sidecar"
+            found=$((found + 1))
+          done
+          [ "$found" -eq 4 ] || {
+            echo "release: expected 4 checksum sidecars, found $found" >&2
+            exit 1
+          }
+
+      - name: Build release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -eu
+          ./.github/scripts/changelog-section.sh "$VERSION" > release-notes.md
+          {
+            echo
+            echo "Verify a download against its \`.sha256\` sidecar before use:"
+            echo
+            echo '```bash'
+            echo 'sha256sum -c spec-kitty-mcp-'"$VERSION"'-x86_64-linux-musl.sha256'
+            echo '```'
+          } >> release-notes.md
+          cat release-notes.md
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          # A version containing a hyphen (0.2.0-rc.1) is a prerelease.
+          prerelease=""
+          case "$VERSION" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          # shellcheck disable=SC2086
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "spec-kitty-mcp $VERSION" \
+            --notes-file release-notes.md \
+            --verify-tag \
+            $prerelease \
+            staged/spec-kitty-mcp-*
