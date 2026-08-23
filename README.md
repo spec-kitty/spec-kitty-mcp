@@ -13,7 +13,7 @@ preflights under Spec Kitty's control.
 > all read-only, guarded workflow, acceptance, and merge operations while
 > preserving policy, audit, correlation, success, and failure information.
 >
-> **Latest release:** [`v0.1.0`](https://github.com/LynnColeArt/spec-kitty-mcp/releases/tag/v0.1.0)
+> **Latest release:** [`v0.2.0`](https://github.com/spec-kitty/spec-kitty-mcp/releases/tag/v0.2.0)
 
 ## Why this exists
 
@@ -76,7 +76,7 @@ safety treatment.
 - Zig `0.16.0` for initial development
 - MCP protocol revision `2025-11-25`
 - Spec Kitty orchestrator API contract `1.3.0`
-- stdio transport for the first release
+- stdio transport by default, with an optional read-only localhost HTTP transport
 
 The server will negotiate both MCP and Spec Kitty contract versions at startup
 and fail explicitly when no supported version overlaps. Compatibility is a
@@ -186,7 +186,7 @@ Build a versioned, stripped standalone binary and SHA-256 sidecar for a Zig
 target:
 
 ```bash
-./scripts/package-release.sh 0.1.0 x86_64-linux-musl
+./scripts/package-release.sh 0.2.0 x86_64-linux-musl
 ```
 
 Artifacts are written to the ignored `dist/` directory. The packaging command
@@ -226,7 +226,7 @@ Codex CLI, the IDE extension, or the ChatGPT desktop app.
 - Providing a general-purpose shell execution tool
 - Hiding policy metadata, actor identity, or guard failures from callers
 - Owning agent scheduling or deciding which work package should run next
-- Shipping HTTP transport before the local stdio server is solid
+- Exposing a mutating tool, or any unauthenticated request, over a socket
 
 ## Documentation
 

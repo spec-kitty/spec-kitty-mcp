@@ -480,11 +480,61 @@ const resolve_workspace_min_version = std.SemanticVersion{
     .patch = 0,
 };
 
+/// How much of the catalog a transport may expose.
+///
+/// stdio runs as a child of one trusted host and gets `all`. A transport that
+/// listens on a socket starts at `read_only`, so reaching a mutating tool takes
+/// a deliberate widening rather than an open socket.
+pub const Access = enum { all, read_only };
+
+pub fn catalogFor(access: Access, api_version: ?[]const u8) []const Definition {
+    const resolve_workspace = if (api_version) |version|
+        supportsResolveWorkspace(version)
+    else
+        false;
+
+    return switch (access) {
+        .all => if (resolve_workspace) full_catalog else full_catalog_gated,
+        .read_only => if (resolve_workspace) read_only_catalog else read_only_catalog_gated,
+    };
+}
+
 pub fn catalogForVersion(api_version: ?[]const u8) []const Definition {
-    if (api_version) |version| {
-        if (supportsResolveWorkspace(version)) return &catalog;
+    return catalogFor(.all, api_version);
+}
+
+/// Whether `access` admits a tool name at call time.
+///
+/// A name the access level withholds is indistinguishable from a name that does
+/// not exist, so a read-only transport does not disclose which mutating tools it
+/// is hiding.
+pub fn admitsName(access: Access, name: []const u8) bool {
+    for (catalog) |definition| {
+        if (!std.mem.eql(u8, definition.name, name)) continue;
+        return switch (access) {
+            .all => true,
+            .read_only => definition.annotations.readOnlyHint,
+        };
     }
-    return catalog[0 .. catalog.len - 1];
+    return false;
+}
+
+const full_catalog = subset(true, .all);
+const full_catalog_gated = subset(false, .all);
+const read_only_catalog = subset(true, .read_only);
+const read_only_catalog_gated = subset(false, .read_only);
+
+fn subset(comptime resolve_workspace: bool, comptime access: Access) []const Definition {
+    const source = if (resolve_workspace) catalog[0..] else catalog[0 .. catalog.len - 1];
+    var buffer: [catalog.len]Definition = undefined;
+    var len: usize = 0;
+    for (source) |definition| {
+        if (access == .read_only and !definition.annotations.readOnlyHint) continue;
+        buffer[len] = definition;
+        len += 1;
+    }
+    const frozen = buffer[0..len].*;
+    return &frozen;
 }
 
 pub fn supportsResolveWorkspace(api_version: []const u8) bool {
@@ -1996,4 +2046,41 @@ test "merge preserves preflight failures and rejects invalid options" {
             "1.3.0",
         ));
     }
+}
+
+test "read-only access withholds every mutating tool" {
+    const full = catalogFor(.all, "1.3.0");
+    const read_only = catalogFor(.read_only, "1.3.0");
+
+    try std.testing.expect(read_only.len < full.len);
+    for (read_only) |definition| {
+        try std.testing.expect(definition.annotations.readOnlyHint);
+        try std.testing.expect(!definition.annotations.destructiveHint);
+    }
+
+    var withheld: usize = 0;
+    for (full) |definition| {
+        if (definition.annotations.readOnlyHint) continue;
+        withheld += 1;
+    }
+    try std.testing.expectEqual(full.len - read_only.len, withheld);
+}
+
+test "access gating composes with the resolve-workspace version gate" {
+    const gated = catalogFor(.read_only, null);
+    const ungated = catalogFor(.read_only, "1.3.0");
+
+    for (gated) |definition| {
+        try std.testing.expect(!std.mem.eql(u8, definition.name, "spec_kitty_resolve_workspace"));
+    }
+    try std.testing.expectEqual(gated.len + 1, ungated.len);
+}
+
+test "admitsName hides mutating tools behind read-only access" {
+    try std.testing.expect(admitsName(.all, "spec_kitty_merge_mission"));
+    try std.testing.expect(admitsName(.read_only, "spec_kitty_mission_state"));
+    try std.testing.expect(!admitsName(.read_only, "spec_kitty_merge_mission"));
+    try std.testing.expect(!admitsName(.read_only, "spec_kitty_transition"));
+    try std.testing.expect(!admitsName(.all, "not_a_tool"));
+    try std.testing.expect(!admitsName(.read_only, "not_a_tool"));
 }

@@ -26,10 +26,10 @@ Set the release version and target to match the asset you are installing:
 | macOS | Apple Silicon | `aarch64-macos` |
 
 ```bash
-VERSION=0.1.0
+VERSION=0.2.0
 TARGET=x86_64-linux-musl
 ASSET="spec-kitty-mcp-${VERSION}-${TARGET}"
-RELEASE_URL="https://github.com/LynnColeArt/spec-kitty-mcp/releases/download/v${VERSION}"
+RELEASE_URL="https://github.com/spec-kitty/spec-kitty-mcp/releases/download/v${VERSION}"
 
 curl -fLO "${RELEASE_URL}/${ASSET}"
 curl -fLO "${RELEASE_URL}/${ASSET}.sha256"
@@ -53,10 +53,10 @@ Use the Zig version declared by `build.zig.zon`, then build and copy the local
 binary:
 
 ```bash
-git clone https://github.com/LynnColeArt/spec-kitty-mcp.git
+git clone https://github.com/spec-kitty/spec-kitty-mcp.git
 cd spec-kitty-mcp
 zig build check
-zig build -Doptimize=ReleaseSafe -Dstrip=true -Dversion=0.1.0
+zig build -Doptimize=ReleaseSafe -Dstrip=true -Dversion=0.2.0
 install -Dm755 zig-out/bin/spec-kitty-mcp "$HOME/.local/bin/spec-kitty-mcp"
 ```
 
@@ -88,6 +88,48 @@ If `spec-kitty` is not on the MCP host's `PATH`, also pass:
 ```
 
 See [Codex setup](codex-setup.md) for complete host configuration examples.
+
+## Serve over localhost HTTP
+
+stdio is the default and the recommended transport. A host that cannot spawn a
+child process can use the HTTP transport instead, which serves read-only tools
+on loopback behind a mandatory bearer credential.
+
+```text
+SPEC_KITTY_MCP_TOKEN=<secret> $HOME/.local/bin/spec-kitty-mcp \
+  --project-root /path/to/initialized-project \
+  --http 127.0.0.1:8765
+```
+
+The credential can come from a file instead, which must not be readable by
+group or others:
+
+```text
+install -m 600 /dev/null ~/.config/spec-kitty-mcp/token
+printf '%s' "$(openssl rand -hex 32)" > ~/.config/spec-kitty-mcp/token
+spec-kitty-mcp --project-root /path/to/project \
+  --http 127.0.0.1:8765 \
+  --token-file ~/.config/spec-kitty-mcp/token
+```
+
+The credential is never accepted on the command line. Other local processes can
+read `/proc/<pid>/cmdline`, and argv lands in shell history, which is the reader
+this transport is defending against.
+
+What this transport does and does not do:
+
+- `POST /mcp` only. A `GET` is answered 405; resumable SSE streams are not part
+  of this phase.
+- Read-only tools only. A mutating tool answers exactly like a tool that does
+  not exist.
+- One connection is one session. Each connection runs its own `initialize`
+  handshake.
+- A request without a valid credential is refused before its path, method or
+  origin is considered.
+- `Origin` must be a loopback origin, `MCP-Protocol-Version` must match the
+  pinned revision, and a body over 1 MiB is refused from its declared length.
+- Binding a non-loopback host requires `--insecure-bind`, and there is no TLS.
+  Terminate TLS at a reverse proxy and do not expose this in cleartext.
 
 ## Upgrade safely
 

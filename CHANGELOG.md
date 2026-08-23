@@ -1,9 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-08-23
 
 ### Added
 
+- An optional localhost HTTP transport behind `--http host:port`, serving
+  `POST /mcp` with read-only tools and a mandatory bearer credential taken from
+  `SPEC_KITTY_MCP_TOKEN` or `--token-file`, never from argv. `Origin`,
+  `MCP-Protocol-Version`, media type, and the 1 MiB message cap are enforced,
+  and a non-loopback bind requires `--insecure-bind`
+- A transport conformance script in `src/conformance.zig`: one ordered lifecycle
+  script covering framing, response ordering, lifecycle gating, catalog gating,
+  and JSON-RPC error codes, which both transports are held to
+- `tools.Access`, so a transport can serve a catalog filtered on `readOnlyHint`.
+  A withheld tool answers exactly like a tool that does not exist
 - Continuous integration on pull requests and pushes to `main`: `zig build check`
   plus a cross-compile of all four published targets
 - A tag-triggered release workflow that packages and publishes the linux and macOS
@@ -17,6 +27,12 @@
 - `docs/releasing.md` now describes the automated release path. Pushing the version
   tag remains the human gate, and the two smoke suites remain a local pre-tag gate
   because they need a live installed `spec-kitty` executable.
+
+### Unchanged
+
+- stdio remains the default transport and the recommended one. Nothing about an
+  existing stdio host configuration changes, and the tool surface over stdio is
+  the same as in 0.1.0.
 
 ## 0.1.0 - 2026-08-06
 
