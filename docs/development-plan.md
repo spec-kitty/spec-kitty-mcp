@@ -94,7 +94,7 @@ and removed without changing Spec Kitty itself.
 
 These are deliberately outside the initial release:
 
-- Streamable HTTP transport and its authentication model
+- Streamable HTTP transport and its authentication model (design settled below)
 - MCP resources for mission snapshots
 - Task-augmented long-running merge operations
 - Dynamic multi-project routing in one server process
@@ -103,3 +103,32 @@ These are deliberately outside the initial release:
 - Agent scheduling or mission sequencing
 
 Each requires a separate design decision because it widens the trust boundary.
+
+### Streamable HTTP transport
+
+The authentication decision is settled in
+[#13](https://github.com/spec-kitty/spec-kitty-mcp/issues/13): a first
+localhost phase serves read-only tools behind mandatory bearer authentication.
+Shipping it is still deferred. These are the conditions.
+
+- Default bind `127.0.0.1`. A wider bind needs an explicit insecure flag.
+- The token comes from an environment variable or a `0600` token file, never
+  from argv. `/proc/<pid>/cmdline` is readable by other local processes, which
+  is the exact threat the token exists to stop.
+- Token comparison hashes both sides to a fixed-size digest and compares in
+  constant time, so token length cannot leak through an early return.
+- The served catalog is filtered on `readOnlyHint`, so `tools/list` and
+  `tools/call` share one source of truth and cannot drift. Mutation opt-in, if
+  it ever arrives, is a per-tool allowlist and not one global switch.
+- `Origin` validation returns 403 and `MCP-Protocol-Version` enforcement
+  returns 400.
+- The 1 MiB `max_message_bytes` cap is enforced by rejecting on
+  `Content-Length` before the body is read.
+- TLS terminates at a reverse proxy. No cleartext remote exposure.
+- `Mcp-Session-Id` belongs to a later GET or SSE phase.
+
+Prerequisite, landed: the transport conformance script in
+`src/conformance.zig`, so a listener has a defined target to pass before it is
+written.
+
+OAuth 2.1 authorization stays parked until a remote consumer asks for it.
