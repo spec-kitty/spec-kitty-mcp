@@ -46,7 +46,7 @@ server must not depend on those implementation details.
 
 ## Process model
 
-The first release uses MCP stdio transport:
+stdio is the default transport:
 
 - The host starts one `spec-kitty-mcp` child process.
 - The server reads one UTF-8 JSON-RPC message per stdin line.
@@ -58,6 +58,12 @@ The first release uses MCP stdio transport:
 One process binds to one canonical project root. The root is supplied at
 startup, resolved to an absolute path, and verified before initialization
 completes. Per-tool arbitrary working directories are deliberately excluded.
+
+`--http host:port` serves the same handler over localhost HTTP instead, with
+read-only tools and a mandatory bearer credential. One process serves one
+transport. The trust boundary differs between them: stdio inherits the trust of
+the host that spawned it, while a socket is reachable by any local process, so
+the HTTP path authenticates first and never exposes a mutating tool.
 
 ## Transport conformance
 

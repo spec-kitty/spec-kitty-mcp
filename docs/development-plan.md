@@ -90,26 +90,20 @@ and failure information, with no adapter-side state edits.
 Exit condition: the release artifact can be installed, configured, exercised,
 and removed without changing Spec Kitty itself.
 
-## Deferred ideas
+## Milestone 7: localhost HTTP transport
 
-These are deliberately outside the initial release:
+The authentication decision was settled in
+[#13](https://github.com/spec-kitty/spec-kitty-mcp/issues/13): a first localhost
+phase serves read-only tools behind mandatory bearer authentication.
 
-- Streamable HTTP transport and its authentication model (design settled below)
-- MCP resources for mission snapshots
-- Task-augmented long-running merge operations
-- Dynamic multi-project routing in one server process
-- Exposing forced transitions
-- Automatic mutation retries
-- Agent scheduling or mission sequencing
+- [x] Pin transport behavior with a conformance script both transports pass.
+- [x] Require a bearer credential from the environment or a `0600` file before
+  any listen, never from argv.
+- [x] Serve read-only tools only, filtered from the catalog itself.
+- [x] Enforce origin, protocol version, media type, and the message size cap.
+- [x] Refuse a non-loopback bind without an explicit insecure flag.
 
-Each requires a separate design decision because it widens the trust boundary.
-
-### Streamable HTTP transport
-
-The authentication decision is settled in
-[#13](https://github.com/spec-kitty/spec-kitty-mcp/issues/13): a first
-localhost phase serves read-only tools behind mandatory bearer authentication.
-Shipping it is still deferred. These are the conditions.
+Conditions this phase holds to:
 
 - Default bind `127.0.0.1`. A wider bind needs an explicit insecure flag.
 - The token comes from an environment variable or a `0600` token file, never
@@ -127,8 +121,26 @@ Shipping it is still deferred. These are the conditions.
 - TLS terminates at a reverse proxy. No cleartext remote exposure.
 - `Mcp-Session-Id` belongs to a later GET or SSE phase.
 
-Prerequisite, landed: the transport conformance script in
-`src/conformance.zig`, so a listener has a defined target to pass before it is
-written.
+Both transports pass the same conformance script in `src/conformance.zig`, so
+transport choice cannot change observable protocol behavior.
 
-OAuth 2.1 authorization stays parked until a remote consumer asks for it.
+Exit condition: a localhost listener refuses every unauthenticated request,
+exposes no mutating tool, and answers the conformance script exactly as stdio
+does.
+
+Still deferred: resumable GET and SSE streams, `Mcp-Session-Id`, mutation
+opt-in as a per-tool allowlist, and OAuth 2.1 authorization, which stays parked
+until a remote consumer asks for it.
+
+## Deferred ideas
+
+These are deliberately outside the initial release:
+
+- MCP resources for mission snapshots
+- Task-augmented long-running merge operations
+- Dynamic multi-project routing in one server process
+- Exposing forced transitions
+- Automatic mutation retries
+- Agent scheduling or mission sequencing
+
+Each requires a separate design decision because it widens the trust boundary.
