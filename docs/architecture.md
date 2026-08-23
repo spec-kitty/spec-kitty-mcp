@@ -59,6 +59,17 @@ One process binds to one canonical project root. The root is supplied at
 startup, resolved to an absolute path, and verified before initialization
 completes. Per-tool arbitrary working directories are deliberately excluded.
 
+## Transport conformance
+
+Transport choice is not allowed to change observable protocol behavior. The
+ordered script in `src/conformance.zig` is the contract: framing, response
+order, lifecycle gating, catalog gating, and JSON-RPC error codes. The stdio
+driver in that file satisfies it today, and any further transport is expected
+to supply its own driver and pass the same script unchanged.
+
+Tool execution is not part of the script. It depends on the Spec Kitty binary
+and is not transport-specific, so the smoke tests cover it instead.
+
 ## MCP lifecycle
 
 The initial implementation supports:
