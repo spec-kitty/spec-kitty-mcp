@@ -13,7 +13,7 @@ preflights under Spec Kitty's control.
 > all read-only, guarded workflow, acceptance, and merge operations while
 > preserving policy, audit, correlation, success, and failure information.
 >
-> **Latest release:** [`v0.1.0`](https://github.com/LynnColeArt/spec-kitty-mcp/releases/tag/v0.1.0)
+> **Latest release:** [`v0.2.0`](https://github.com/spec-kitty/spec-kitty-mcp/releases/tag/v0.2.0)
 
 ## Why this exists
 
@@ -186,7 +186,7 @@ Build a versioned, stripped standalone binary and SHA-256 sidecar for a Zig
 target:
 
 ```bash
-./scripts/package-release.sh 0.1.0 x86_64-linux-musl
+./scripts/package-release.sh 0.2.0 x86_64-linux-musl
 ```
 
 Artifacts are written to the ignored `dist/` directory. The packaging command

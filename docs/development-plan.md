@@ -102,6 +102,7 @@ phase serves read-only tools behind mandatory bearer authentication.
 - [x] Serve read-only tools only, filtered from the catalog itself.
 - [x] Enforce origin, protocol version, media type, and the message size cap.
 - [x] Refuse a non-loopback bind without an explicit insecure flag.
+- [x] Publish the `v0.2.0` tagged release for macOS and Linux.
 
 Conditions this phase holds to:
 

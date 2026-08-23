@@ -26,10 +26,10 @@ Set the release version and target to match the asset you are installing:
 | macOS | Apple Silicon | `aarch64-macos` |
 
 ```bash
-VERSION=0.1.0
+VERSION=0.2.0
 TARGET=x86_64-linux-musl
 ASSET="spec-kitty-mcp-${VERSION}-${TARGET}"
-RELEASE_URL="https://github.com/LynnColeArt/spec-kitty-mcp/releases/download/v${VERSION}"
+RELEASE_URL="https://github.com/spec-kitty/spec-kitty-mcp/releases/download/v${VERSION}"
 
 curl -fLO "${RELEASE_URL}/${ASSET}"
 curl -fLO "${RELEASE_URL}/${ASSET}.sha256"
@@ -53,10 +53,10 @@ Use the Zig version declared by `build.zig.zon`, then build and copy the local
 binary:
 
 ```bash
-git clone https://github.com/LynnColeArt/spec-kitty-mcp.git
+git clone https://github.com/spec-kitty/spec-kitty-mcp.git
 cd spec-kitty-mcp
 zig build check
-zig build -Doptimize=ReleaseSafe -Dstrip=true -Dversion=0.1.0
+zig build -Doptimize=ReleaseSafe -Dstrip=true -Dversion=0.2.0
 install -Dm755 zig-out/bin/spec-kitty-mcp "$HOME/.local/bin/spec-kitty-mcp"
 ```
 
