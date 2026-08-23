@@ -53,6 +53,49 @@ fn run(init: std.process.Init) !u8 {
             defer contract.deinit(init.gpa);
             std.log.info("Spec Kitty orchestrator contract: {s}", .{contract.api_version});
 
+            if (options.http) |bind| {
+                const address = Io.net.IpAddress.parse(bind.host, bind.port) catch {
+                    std.log.err("--http host is not an IP address: {s}", .{bind.host});
+                    return 2;
+                };
+                if (!app.http.isLoopbackAddress(address) and !bind.insecure_bind) {
+                    std.log.err(
+                        "refusing to bind non-loopback host {s} without --insecure-bind",
+                        .{bind.host},
+                    );
+                    return 2;
+                }
+
+                // No credential, no socket. There is no anonymous listen.
+                const token = app.auth.load(
+                    init.io,
+                    init.gpa,
+                    init.environ_map,
+                    bind.token_file,
+                ) catch |err| {
+                    std.log.err("{s}", .{app.auth.errorMessage(err)});
+                    return 2;
+                };
+
+                app.http.listen(init.io, init.gpa, address, .{
+                    .version = app.version,
+                    .client = client,
+                    .provider_version = app.provider_version,
+                    .api_version = contract.api_version,
+                }, .{ .token = token }) catch |err| switch (err) {
+                    error.AddressInUse => {
+                        std.log.err("{s}:{d} is already in use", .{ bind.host, bind.port });
+                        return 2;
+                    },
+                    error.AddressUnavailable => {
+                        std.log.err("{s} is not a local address", .{bind.host});
+                        return 2;
+                    },
+                    else => return err,
+                };
+                return 0;
+            }
+
             try app.mcp.serve(
                 init.io,
                 init.gpa,

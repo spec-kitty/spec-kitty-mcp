@@ -76,7 +76,7 @@ safety treatment.
 - Zig `0.16.0` for initial development
 - MCP protocol revision `2025-11-25`
 - Spec Kitty orchestrator API contract `1.3.0`
-- stdio transport for the first release
+- stdio transport by default, with an optional read-only localhost HTTP transport
 
 The server will negotiate both MCP and Spec Kitty contract versions at startup
 and fail explicitly when no supported version overlaps. Compatibility is a
@@ -226,7 +226,7 @@ Codex CLI, the IDE extension, or the ChatGPT desktop app.
 - Providing a general-purpose shell execution tool
 - Hiding policy metadata, actor identity, or guard failures from callers
 - Owning agent scheduling or deciding which work package should run next
-- Shipping HTTP transport before the local stdio server is solid
+- Exposing a mutating tool, or any unauthenticated request, over a socket
 
 ## Documentation
 

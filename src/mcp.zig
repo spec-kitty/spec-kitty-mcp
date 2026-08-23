@@ -20,6 +20,9 @@ pub const Server = struct {
     state: SessionState = .awaiting_initialize,
     version: []const u8,
     runtime: ?Runtime = null,
+    /// How much of the tool catalog this session may reach. Transports that
+    /// listen on a socket set this to `read_only`; stdio leaves it at `all`.
+    access: tools.Access = .all,
 
     const Runtime = struct {
         client: spec_kitty.Client,
@@ -127,7 +130,7 @@ pub const Server = struct {
             else
                 null;
             return writeResult(writer, response_id, ToolsListResult{
-                .tools = tools.catalogForVersion(api_version),
+                .tools = tools.catalogFor(server.access, api_version),
             });
         }
 
@@ -164,6 +167,12 @@ pub const Server = struct {
             return writeError(writer, id, -32602, "Invalid tool parameters");
         if (name != .string or name.string.len == 0) {
             return writeError(writer, id, -32602, "Invalid tool parameters");
+        }
+
+        // A withheld tool answers exactly like a nonexistent one, so a
+        // read-only transport does not disclose the mutating catalog.
+        if (!tools.admitsName(server.access, name.string)) {
+            return writeError(writer, id, -32602, "Unknown tool");
         }
 
         const runtime = server.runtime orelse
@@ -815,4 +824,48 @@ test "an unterminated stdio frame is not processed" {
 
     try runSession(std.testing.allocator, &reader, &output.writer, "test");
     try std.testing.expectEqualStrings("", output.written());
+}
+
+test "read-only access withholds mutating tools from list and call" {
+    const client: spec_kitty.Client = .{
+        .executable = "unused",
+        .project_root = ".",
+    };
+    var server = Server.initWithTools(
+        "test",
+        client,
+        std.testing.io,
+        "0.1.0",
+        "1.3.0",
+    );
+    server.state = .ready;
+    server.access = .read_only;
+
+    const listed = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
+    );
+    defer std.testing.allocator.free(listed);
+    try std.testing.expect(std.mem.indexOf(u8, listed, "\"name\":\"spec_kitty_mission_state\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, listed, "\"name\":\"spec_kitty_merge_mission\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, listed, "\"name\":\"spec_kitty_transition\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, listed, "\"readOnlyHint\":false") == null);
+    try std.testing.expect(std.mem.indexOf(u8, listed, "\"destructiveHint\":true") == null);
+
+    // A withheld tool is indistinguishable from one that does not exist.
+    const withheld = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"spec_kitty_merge_mission\",\"arguments\":{\"mission\":\"demo\"}}}",
+    );
+    defer std.testing.allocator.free(withheld);
+    const absent = try exchange(
+        &server,
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"not_a_tool\",\"arguments\":{}}}",
+    );
+    defer std.testing.allocator.free(absent);
+    try std.testing.expectEqualStrings(absent, withheld);
+    try std.testing.expectEqualStrings(
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32602,\"message\":\"Unknown tool\"}}\n",
+        withheld,
+    );
 }

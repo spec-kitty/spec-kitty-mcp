@@ -89,6 +89,48 @@ If `spec-kitty` is not on the MCP host's `PATH`, also pass:
 
 See [Codex setup](codex-setup.md) for complete host configuration examples.
 
+## Serve over localhost HTTP
+
+stdio is the default and the recommended transport. A host that cannot spawn a
+child process can use the HTTP transport instead, which serves read-only tools
+on loopback behind a mandatory bearer credential.
+
+```text
+SPEC_KITTY_MCP_TOKEN=<secret> $HOME/.local/bin/spec-kitty-mcp \
+  --project-root /path/to/initialized-project \
+  --http 127.0.0.1:8765
+```
+
+The credential can come from a file instead, which must not be readable by
+group or others:
+
+```text
+install -m 600 /dev/null ~/.config/spec-kitty-mcp/token
+printf '%s' "$(openssl rand -hex 32)" > ~/.config/spec-kitty-mcp/token
+spec-kitty-mcp --project-root /path/to/project \
+  --http 127.0.0.1:8765 \
+  --token-file ~/.config/spec-kitty-mcp/token
+```
+
+The credential is never accepted on the command line. Other local processes can
+read `/proc/<pid>/cmdline`, and argv lands in shell history, which is the reader
+this transport is defending against.
+
+What this transport does and does not do:
+
+- `POST /mcp` only. A `GET` is answered 405; resumable SSE streams are not part
+  of this phase.
+- Read-only tools only. A mutating tool answers exactly like a tool that does
+  not exist.
+- One connection is one session. Each connection runs its own `initialize`
+  handshake.
+- A request without a valid credential is refused before its path, method or
+  origin is considered.
+- `Origin` must be a loopback origin, `MCP-Protocol-Version` must match the
+  pinned revision, and a body over 1 MiB is refused from its declared length.
+- Binding a non-loopback host requires `--insecure-bind`, and there is no TLS.
+  Terminate TLS at a reverse proxy and do not expose this in cleartext.
+
 ## Upgrade safely
 
 Download and verify the new release before replacing the running binary. Keep
